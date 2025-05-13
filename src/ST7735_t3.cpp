@@ -1194,6 +1194,8 @@ void ST7735_t3::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 				writedata16(color);
 			}
 			writedata16_last(color);		
+			endSPITransaction();
+			beginSPITransaction();
 		}
 		endSPITransaction();
 	}
@@ -2660,10 +2662,11 @@ void ST7735_t3::drawChar(int16_t x, int16_t y, unsigned char c,
 
 
 		#ifdef ENABLE_ST77XX_FRAMEBUFFER
-		if (_use_fbtft) {
-      updateChangedRange(
-          x, y, 6 * size_x,
-          8 * size_y); // update the range of the screen that has been changed;
+		if (_use_fbtft) 
+		{
+			updateChangedRange(
+				x, y, 6 * size_x,
+				8 * size_y); // update the range of the screen that has been changed;
 			uint16_t * pfbPixel_row = &_pfbtft[ y*_width + x];
 			for (yc=0; (yc < 8) && (y < _displayclipy2); yc++) {
 				for (yr=0; (yr < size_y) && (y < _displayclipy2); yr++) {
@@ -2713,9 +2716,11 @@ void ST7735_t3::drawChar(int16_t x, int16_t y, unsigned char c,
 
 			beginSPITransaction();
 			setAddr(x, y, x + w -1, y + h - 1);
+			int16_t x0 = x, y0 = y;
 
 			y = y_char_top;	// restore the actual y.
 			writecommand(ST7735_RAMWR);
+			uint32_t midTimer = micros();
 			for (yc=0; (yc < 8) && (y < _displayclipy2); yc++) {
 				for (yr=0; (yr < size_y) && (y < _displayclipy2); yr++) {
 					x = x_char_start; 		// get our first x position...
@@ -2743,6 +2748,15 @@ void ST7735_t3::drawChar(int16_t x, int16_t y, unsigned char c,
 					y++;
 				}
 				mask = mask << 1;
+				if (micros() - midTimer > 1000) // every 1ms...
+				{
+					midTimer = micros();
+					writecommand_last(ST7735_NOP);
+					endSPITransaction();   // ... let other SPI stuff
+					beginSPITransaction(); // have a go
+					setAddr(x0, y, x0 + w -1, y0 + h - 1);
+					writecommand(ST7735_RAMWR);
+				}
 			}
 			writecommand_last(ST7735_NOP);
 			endSPITransaction();
