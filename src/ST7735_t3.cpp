@@ -79,6 +79,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t sid, uint8_t sclk, uint8_t 
 	gfxFont   = NULL;
 	setClipRect();
 	setOrigin();
+	setMaxTransaction(1000); // longest allowed transaction (may not be honoured!)
 }
 
 
@@ -110,6 +111,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst)
 	gfxFont   = NULL;
 	setClipRect();
 	setOrigin();
+	setMaxTransaction(1000); // longest allowed transaction (may not be honoured!)
 }
 
 
@@ -1183,8 +1185,8 @@ void ST7735_t3::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 	#endif
 	{
 
-		// TODO: this can result in a very long transaction time
-		// should break this into multiple transactions, even though
+		// This can result in a very long transaction time so we
+		// break this into multiple transactions, even though
 		// it'll cost more overhead, so we don't stall other SPI libs
 		beginSPITransaction();
 		setAddr(x, y, x+w-1, y+h-1);
@@ -1193,9 +1195,8 @@ void ST7735_t3::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 			for(x=w; x>1; x--) {
 				writedata16(color);
 			}
-			writedata16_last(color);		
-			endSPITransaction();
-			beginSPITransaction();
+			writedata16_last(color);
+			midTransaction(); // check for needing end+begin on transaction
 		}
 		endSPITransaction();
 	}
@@ -1435,6 +1436,7 @@ void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint
 		}
 		writedata16_last(*pcolors++);
 		pcolors += x_clip_right;
+		// TODO: needs midTransaction() !!
 	}
 	endSPITransaction();
 }
@@ -1506,6 +1508,7 @@ void ST7735_t3::writeSubImageRect(int16_t x, int16_t y, int16_t w, int16_t h,
     }
     writedata16_last(*pcolors++);
     pcolors = pcolors_row + image_width;
+	// TODO: needs midTransaction() !!
   }
   endSPITransaction();
 }
@@ -1577,10 +1580,11 @@ void ST7735_t3::writeSubImageRectBytesReversed(int16_t x, int16_t y, int16_t w, 
       color = ((color & 0xff) << 8) + (color >> 8);
       writedata16(color);
     }
-      uint16_t color = *pcolors;
-      color = ((color & 0xff) << 8) + (color >> 8);
-      writedata16_last(color);
+	uint16_t color = *pcolors;
+	color = ((color & 0xff) << 8) + (color >> 8);
+	writedata16_last(color);
     pcolors = pcolors_row + image_width;
+	// TODO: needs midTransaction() !!
   }
   endSPITransaction();
 }
@@ -1668,6 +1672,7 @@ void ST7735_t3::writeRect8BPP(int16_t x, int16_t y, int16_t w, int16_t h,
     // Serial.println(*pixels, DEC);
     writedata16_last(palette[*pixels++]);
     pixels += x_clip_right;
+	// TODO: needs midTransaction() !!
   }
   endSPITransaction();
 }
@@ -1816,6 +1821,7 @@ void ST7735_t3::writeRectNBPP(int16_t x, int16_t y, int16_t w, int16_t h,
       }
     }
     pixels_row_start += count_of_bytes_per_row;
+	// TODO: needs midTransaction() !!
   }
   writecommand_last(ST7735_NOP);
   endSPITransaction();
@@ -2720,9 +2726,10 @@ void ST7735_t3::drawChar(int16_t x, int16_t y, unsigned char c,
 
 			y = y_char_top;	// restore the actual y.
 			writecommand(ST7735_RAMWR);
-			uint32_t midTimer = micros();
-			for (yc=0; (yc < 8) && (y < _displayclipy2); yc++) {
-				for (yr=0; (yr < size_y) && (y < _displayclipy2); yr++) {
+			for (yc=0; (yc < 8) && (y < _displayclipy2); yc++) 
+			{
+				for (yr=0; (yr < size_y) && (y < _displayclipy2); yr++) 
+				{
 					x = x_char_start; 		// get our first x position...
 					if (y >= _displayclipy1) {
 						for (xc=0; xc < 5; xc++) {
@@ -2746,17 +2753,9 @@ void ST7735_t3::drawChar(int16_t x, int16_t y, unsigned char c,
 						}
 					}
 					y++;
+					midTransaction(x0, y, x0 + w -1, y0 + h - 1); // check for needing end+begin on transaction
 				}
 				mask = mask << 1;
-				if (micros() - midTimer > 1000) // every 1ms...
-				{
-					midTimer = micros();
-					writecommand_last(ST7735_NOP);
-					endSPITransaction();   // ... let other SPI stuff
-					beginSPITransaction(); // have a go
-					setAddr(x0, y, x0 + w -1, y0 + h - 1);
-					writecommand(ST7735_RAMWR);
-				}
 			}
 			writecommand_last(ST7735_NOP);
 			endSPITransaction();
@@ -3011,7 +3010,7 @@ void ST7735_t3::drawFontChar(unsigned int c)
 			}
 
 		}
-		// Soild pixels
+		// Solid pixels
 		else{
 
 			while (linecount > 0) {
@@ -3255,6 +3254,7 @@ void ST7735_t3::drawFontChar(unsigned int c)
 					writedata16(textbgcolor);
 				}
 				screen_y++;
+				midTransaction(start_x, screen_y, end_x, end_y); // check for needing end+begin on transaction
 			}
 
 			// Anti-aliased font
@@ -3284,6 +3284,7 @@ void ST7735_t3::drawFontChar(unsigned int c)
 					}
 					screen_y++;
 					linecount--;
+					midTransaction(start_x, screen_y, end_x, end_y); // check for needing end+begin on transaction
 				}
 
 			} // anti-aliased
@@ -3352,17 +3353,22 @@ void ST7735_t3::drawFontChar(unsigned int c)
 						}
 			 			screen_y++;
 						linecount--;
+						midTransaction(start_x, screen_y, end_x, end_y); // check for needing end+begin on transaction
 					}
 				}
 			} // 1bpp
 
-			// clear below character - note reusing xcreen_x for this
-			screen_x = (end_y + 1 - screen_y) * (end_x + 1 - start_x_min); // How many bytes we need to still output
-			//Serial.printf("Clear Below: %d\n", screen_x);
-			while (screen_x-- > 1) {
-				writedata16(textbgcolor);
+			
+			// clear below character
+			while (screen_y < end_y) 
+			{
+				for (screen_x = start_x_min; screen_x <= end_x; screen_x++) {
+					writedata16(textbgcolor);
+				}
+				screen_y++;
+				midTransaction(start_x, screen_y, end_x, end_y); // check for needing end+begin on transaction
 			}
-			writedata16_last(textbgcolor);
+			writecommand_last(ST7735_NOP);
 			endSPITransaction();
 		}
 
@@ -3917,7 +3923,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 		} else 
 		#endif
 		{
-			// lets try to output text in one output rectangle
+			// let's try to output text in one output rectangle
 			//Serial.printf("    SPI (%d %d) (%d %d)\n", x_start, y_start, x_end, y_end);Serial.flush();
 			// compute the actual region we will output given 
 			beginSPITransaction();
@@ -3940,6 +3946,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}					
 				}
 				y++;
+				// TODO: needs midTransaction() !! or replace with fillRect()?
 			}
 			//Serial.println("    After top fill"); Serial.flush();
 			// Now lets output all of the pixels for each of the rows.. 
@@ -3985,6 +3992,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 				        }
 			    	}
 		        	y++;	// remember which row we just output
+					// TODO: needs midTransaction() !!
 			    }
 		    }
 		    // And output any more rows below us...
@@ -3998,6 +4006,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}
 				}
 				y++;
+				// TODO: needs midTransaction() !! 
 			}
 			writecommand_last(ST7735_NOP);
 			endSPITransaction();
@@ -4301,54 +4310,56 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 			// Quick write out the data;
 			while (pftbft < pfbtft_end) {
 				writedata16(*pftbft++);
+				// TODO: needs midTransaction() !! 
 			}
 			writedata16_last(*pftbft);
 		} else {
-      // setup just to output the clip rectangle area anded with updated area if
-      // enabled
-      int16_t start_x = _displayclipx1;
-      int16_t start_y = _displayclipy1;
-      int16_t end_x = _displayclipx2 - 1;
-      int16_t end_y = _displayclipy2 - 1;
 
-      if (_updateChangedAreasOnly) {
-        // maybe update range of values to update...
-        if (_changed_min_x > start_x)
-          start_x = _changed_min_x;
-        if (_changed_min_y > start_y)
-          start_y = _changed_min_y;
-        if (_changed_max_x < end_x)
-          end_x = _changed_max_x;
-        if (_changed_max_y < end_y)
-          end_y = _changed_max_y;
-      }
+			// setup just to output the clip rectangle area anded with updated area if
+			// enabled
+			int16_t start_x = _displayclipx1;
+			int16_t start_y = _displayclipy1;
+			int16_t end_x = _displayclipx2 - 1;
+			int16_t end_y = _displayclipy2 - 1;
 
-      //if (Serial) Serial.printf("updateScreen: (%u %u) - (%u %u)\n", start_x, start_y, end_x, end_y);
-      if ((start_x <= end_x) && (start_y <= end_y)) {
-        setAddr(start_x, start_y, end_x, end_y);
-        writecommand(ST7735_RAMWR);
+			if (_updateChangedAreasOnly) {
+				// maybe update range of values to update...
+				if (_changed_min_x > start_x)
+				start_x = _changed_min_x;
+				if (_changed_min_y > start_y)
+				start_y = _changed_min_y;
+				if (_changed_max_x < end_x)
+				end_x = _changed_max_x;
+				if (_changed_max_y < end_y)
+				end_y = _changed_max_y;
+			}
 
-        // BUGBUG doing as one shot.  Not sure if should or not or do like
-        // main code and break up into transactions...
-        uint16_t *pfbPixel_row = &_pfbtft[start_y * _width + start_x];
-        for (uint16_t y = start_y; y <= end_y; y++) {
-          uint16_t *pfbPixel = pfbPixel_row;
-          for (uint16_t x = start_x; x < end_x; x++) {
-            writedata16(*pfbPixel++);
-          }
-          if (y < (end_y))
-            writedata16(*pfbPixel);
-          else
-            writedata16_last(*pfbPixel);
-          pfbPixel_row += _width; // setup for the next row.
-        }
-      }
+			//if (Serial) Serial.printf("updateScreen: (%u %u) - (%u %u)\n", start_x, start_y, end_x, end_y);
+			if ((start_x <= end_x) && (start_y <= end_y)) {
+				setAddr(start_x, start_y, end_x, end_y);
+				writecommand(ST7735_RAMWR);
 
+				// BUGBUG doing as one shot.  Not sure if should or not or do like
+				// main code and break up into transactions...
+				uint16_t *pfbPixel_row = &_pfbtft[start_y * _width + start_x];
+				for (uint16_t y = start_y; y <= end_y; y++) {
+					uint16_t *pfbPixel = pfbPixel_row;
+					for (uint16_t x = start_x; x < end_x; x++) {
+						writedata16(*pfbPixel++);
+					}
+					if (y < (end_y))
+						writedata16(*pfbPixel);
+					else
+						writedata16_last(*pfbPixel);
+					pfbPixel_row += _width; // setup for the next row.
+			// TODO: needs midTransaction() !!
+				}
+			}
 		}
 
 		endSPITransaction();
 	}
-  clearChangedRange(); // make sure the dirty range is updated.
+  	clearChangedRange(); // make sure the dirty range is updated.
 }			 
 
 #ifdef DEBUG_ASYNC_UPDATE
@@ -4652,47 +4663,47 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	// T4
 	//==========================================
 #elif defined(__IMXRT1062__)  // Teensy 4.x
-  /////////////////////////////
-  // BUGBUG try first not worry about continueous or not.
-  // Start off remove disable on completion from both...
-  // it will be the ISR that disables it...
-  if ((uint32_t)_pfbtft >= 0x20200000u)
-    arm_dcache_flush(_pfbtft, _count_pixels*2);
+	/////////////////////////////
+	// BUGBUG try first not worry about continuous or not.
+	// Start off remove disable on completion from both...
+	// it will be the ISR that disables it...
+	if ((uint32_t)_pfbtft >= 0x20200000u)
+		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-  _dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
-  beginSPITransaction();
-// Doing full window.
+	_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
+	beginSPITransaction();
+	// Doing full window.
 
-  setAddr(0, 0, _width - 1, _height - 1);
-  writecommand_last(ST7735_RAMWR);
+	setAddr(0, 0, _width - 1, _height - 1);
+	writecommand_last(ST7735_RAMWR);
 
-  // Update TCR to 16 bit mode. and output the first entry.
-  _spi_fcr_save = _pimxrt_spi->FCR; // remember the FCR
-  _pimxrt_spi->FCR = 0;             // clear water marks...
-  maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |
-                 LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
-  _pimxrt_spi->DER = LPSPI_DER_TDDE;
-  _pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
+	// Update TCR to 16 bit mode. and output the first entry.
+	_spi_fcr_save = _pimxrt_spi->FCR; // remember the FCR
+	_pimxrt_spi->FCR = 0;             // clear water marks...
+	maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |
+					LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
+	_pimxrt_spi->DER = LPSPI_DER_TDDE;
+	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
-  _dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
+	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
 
-  _dma_data[_spi_num]._dmatx =_dma_data[_spi_num]. _dmasettings[0];
+	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]. _dmasettings[0];
 
-  _dma_data[_spi_num]._dmatx.begin(false);
-  _dma_data[_spi_num]._dmatx.enable();
+	_dma_data[_spi_num]._dmatx.begin(false);
+	_dma_data[_spi_num]._dmatx.enable();
 
-  _dma_frame_count = 0; // Set frame count back to zero.
-  _dmaActiveDisplay[_spi_num] = this;
-  if (update_cont) {
-    _dma_state |= ST77XX_DMA_CONT;
-  } else {
-    _dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
-    _dma_state &= ~ST77XX_DMA_CONT;
-  }
+	_dma_frame_count = 0; // Set frame count back to zero.
+	_dmaActiveDisplay[_spi_num] = this;
+	if (update_cont) {
+		_dma_state |= ST77XX_DMA_CONT;
+	} else {
+		_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
+		_dma_state &= ~ST77XX_DMA_CONT;
+	}
 
-  _dma_state |= ST77XX_DMA_ACTIVE;
+	_dma_state |= ST77XX_DMA_ACTIVE;
 #ifdef DEBUG_ASYNC_UPDATE
-  dumpDMASettings();
+  	dumpDMASettings();
 #endif
 #else
 	//==========================================

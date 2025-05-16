@@ -231,6 +231,8 @@ class ST7735_t3 : public Print
   void     setRowColStart(uint16_t x, uint16_t y);
   uint16_t  rowStart() {return _rowstart;}
   uint16_t  colStart() {return _colstart;}
+  void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1000000 * us;}
+uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     __attribute__((always_inline)) {
@@ -539,6 +541,56 @@ class ST7735_t3 : public Print
   uint16_t _colstart, _rowstart, _xstart, _ystart, _rot, _screenHeight, _screenWidth;
   
   SPISettings _spiSettings;
+
+  //=====================================================================================
+  /*
+   * Transaction-breaking utilities.
+   * Long-running transactions can interfere with other code, so 
+   * these are used to help break them into shorter chunks.
+   *
+   * Relies on polling, so the allowed maximum will actually always be
+   * exceeded to some extent. We use the cycle counter because it's
+   * efficient to read, but the API converts from microseconds to
+   * make the users' lives easier.
+   */
+  uint32_t cyccntAtBegin; // when beginSPITransaction() was last called
+  uint32_t maxTransactionCyccnt; // max CPU cycles allowed before we want a break
+  bool isPastMaxTransaction(void) { return ARM_DWT_CYCCNT - cyccntAtBegin > maxTransactionCyccnt; } // is it time to break the transaction?
+
+  // Do a check for elapsed time since beginSPITransaction(), and if needed
+  // end it and re-begin. If we're given the co-ordinates then we
+  // re-configure the output area, as ending the transaction will have lost it.
+  bool midTransaction(int x0=-1, uint16_t y0=0, uint16_t x1=0, uint16_t y1=0)
+  {
+    bool result = false;
+    if (isPastMaxTransaction())
+    {
+      result = true;
+      if (x0 < 0) // no need for setAddr() call on exit
+      {
+        endSPITransaction();
+        beginSPITransaction();
+      }
+      else // caller relies on bounding rectangle being re-set: do extra work
+      {
+        writecommand_last(ST7735_NOP);
+        endSPITransaction();   // ... let other SPI stuff
+        beginSPITransaction(); // have a go
+        setAddr((uint16_t) x0, y0, x1, y1);
+        writecommand(ST7735_RAMWR);
+      }
+    }
+    return result;
+  }
+
+  // debug - log what the maximum cycle count has been for one transaction
+  void updateMaxTransaction(void)
+  {
+    uint32_t l = ARM_DWT_CYCCNT - cyccntAtBegin;
+    if (l > maxTransactionLengthSeen) maxTransactionLengthSeen = l;
+  }
+  //=====================================================================================
+
 #if defined(__MK20DX128__) || defined(__MK20DX256__) || defined(__MK64FX512__) || defined(__MK66FX1M0__)
   uint8_t  _cs, _rs, _rst, _sid, _sclk;
   uint8_t pcs_data, pcs_command;
@@ -554,6 +606,7 @@ class ST7735_t3 : public Print
   uint32_t _fifo_full_test;
 
   inline void beginSPITransaction() {
+    cyccntAtBegin = ARM_DWT_CYCCNT;
     if (_pspi) _pspi->beginTransaction(_spiSettings);
     if (cspin) *cspin = 0;
   }
@@ -562,6 +615,7 @@ class ST7735_t3 : public Print
   {
     if (cspin) *cspin = 1;
     if (_pspi) _pspi->endTransaction();  
+    updateMaxTransaction();
   }
 
 
@@ -607,6 +661,7 @@ class ST7735_t3 : public Print
   }
 
   inline void beginSPITransaction() {
+    cyccntAtBegin = ARM_DWT_CYCCNT;
     if (hwSPI) _pspi->beginTransaction(_spiSettings);
     if (!_dcport) _spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
     if (_csport)DIRECT_WRITE_LOW(_csport, _cspinmask);
@@ -615,7 +670,8 @@ class ST7735_t3 : public Print
   inline void endSPITransaction() {
     if (_csport)DIRECT_WRITE_HIGH(_csport, _cspinmask);
     if (hwSPI) _pspi->endTransaction();  
-  }
+    updateMaxTransaction();
+}
 
  
   void waitFifoNotFull(void) {
@@ -666,6 +722,7 @@ class ST7735_t3 : public Print
            datapinmask, clkpinmask, cspinmask, rspinmask;
   boolean  hwSPI1;
   inline void beginSPITransaction() {
+    cyccntAtBegin = ARM_DWT_CYCCNT;
     if (hwSPI) SPI.beginTransaction(_spiSettings);
     else if (hwSPI1) SPI1.beginTransaction(_spiSettings);
     if (csport)*csport &= ~cspinmask;
@@ -675,6 +732,8 @@ class ST7735_t3 : public Print
     if (csport) *csport |= cspinmask;
     if (hwSPI) SPI.endTransaction(); 
     else if (hwSPI1)  SPI1.endTransaction();  
+    updateMaxTransaction();
+
   }
 
   void waitTransmitComplete();
