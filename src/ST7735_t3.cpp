@@ -3954,7 +3954,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}					
 				}
 				y++;
-				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
+				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x_end-1, y_end-1);
 			}
 			//Serial.println("    After top fill"); Serial.flush();
 			// Now lets output all of the pixels for each of the rows.. 
@@ -4000,7 +4000,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 				        }
 			    	}
 		        	y++;	// remember which row we just output
-					midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
+					midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x_end-1, y_end-1);
 			    }
 		    }
 		    // And output any more rows below us...
@@ -4014,7 +4014,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}
 				}
 				y++;
-				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
+				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x_end-1, y_end-1);
 			}
 			writecommand_last(ST7735_NOP);
 			endSPITransaction();
