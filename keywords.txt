@@ -45,3 +45,5 @@ getTextBounds	KEYWORD2
 getTextSizeX	KEYWORD2
 getTextSizeY	KEYWORD2
 strPixelLen	KEYWORD2
+setMaxTransaction	KEYWORD2
+enableYieldInMidTransaction	KEYWORD2

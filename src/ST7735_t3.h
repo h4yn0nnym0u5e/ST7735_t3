@@ -42,8 +42,9 @@
 #endif
 
 
-//#define ST7735_SPICLOCK 24000000
-#define ST7735_SPICLOCK 16000000
+//#define ST7735_SPICLOCK 40'000'000
+//#define ST7735_SPICLOCK 24'000'000
+#define ST7735_SPICLOCK 16'000'000
 
 // some flags for initR() :(
 #define INITR_GREENTAB 0x0
@@ -232,6 +233,7 @@ class ST7735_t3 : public Print
   uint16_t  rowStart() {return _rowstart;}
   uint16_t  colStart() {return _colstart;}
   void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1000000 * us;}
+  void enableYieldInMidTransaction(bool en) { yieldInMidTransaction = en; }
 uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
@@ -284,7 +286,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 	int16_t getCursorX(void) const { return cursor_x; }
 	int16_t getCursorY(void) const { return cursor_y; }
 	void setFont(const ILI9341_t3_font_t &f);
-    void setFont(const GFXfont *f = NULL);
+  void setFont(const GFXfont *f = NULL);
 	void setFontAdafruit(void) { setFont(); }
 	void drawFontChar(unsigned int c);
 	void drawGFXFontChar(unsigned int c);
@@ -555,6 +557,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
    */
   uint32_t cyccntAtBegin; // when beginSPITransaction() was last called
   uint32_t maxTransactionCyccnt; // max CPU cycles allowed before we want a break
+  bool yieldInMidTransaction; // if true, does a yield() in mid-transaction break
   bool isPastMaxTransaction(void) { return ARM_DWT_CYCCNT - cyccntAtBegin > maxTransactionCyccnt; } // is it time to break the transaction?
 
   // Do a check for elapsed time since beginSPITransaction(), and if needed
@@ -569,12 +572,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
+        if (yieldInMidTransaction) yield();
         beginSPITransaction();
       }
       else // caller relies on bounding rectangle being re-set: do extra work
       {
         writecommand_last(ST7735_NOP);
         endSPITransaction();   // ... let other SPI stuff
+        if (yieldInMidTransaction) yield();
         beginSPITransaction(); // have a go
         setAddr((uint16_t) x0, y0, x1, y1);
         writecommand(ST7735_RAMWR);

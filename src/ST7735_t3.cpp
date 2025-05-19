@@ -80,6 +80,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t sid, uint8_t sclk, uint8_t 
 	setClipRect();
 	setOrigin();
 	setMaxTransaction(1000); // longest allowed transaction (may not be honoured!)
+	enableYieldInMidTransaction(false); // default to original behaviour
 }
 
 
@@ -112,6 +113,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst)
 	setClipRect();
 	setOrigin();
 	setMaxTransaction(1000); // longest allowed transaction (may not be honoured!)
+	enableYieldInMidTransaction(false); // default to original behaviour
 }
 
 
@@ -1414,7 +1416,7 @@ void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint
       pcolors += x_clip_right;
       y++;
     }
-    // See if we found any chang
+    // See if we found any change
     // if any of the min/max values have default value we know that nothing changed.
     if (y_changed_max != -1) {
       updateChangedRange(x + i_changed_min , y_changed_min, 
@@ -1429,14 +1431,15 @@ void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint
    	beginSPITransaction();
 	setAddr(x, y, x+w-1, y+h-1);
 	writecommand(ST7735_RAMWR);
-	for(y=h; y>0; y--) {
+	for(int yi=h; yi>0; yi--) {
 		pcolors += x_clip_left;
-		for(x=w; x>1; x--) {
+		for(int x=w; x>1; x--) {
 			writedata16(*pcolors++);
 		}
 		writedata16_last(*pcolors++);
 		pcolors += x_clip_right;
-		// TODO: needs midTransaction() !!
+		y++;
+		midTransaction(x, y, x+w-1, y+h-1);
 	}
 	endSPITransaction();
 }
@@ -1501,14 +1504,15 @@ void ST7735_t3::writeSubImageRect(int16_t x, int16_t y, int16_t w, int16_t h,
   beginSPITransaction();
   setAddr(x, y, x+w-1, y+h-1);
   writecommand(ST7735_RAMWR);
-  for(y=h; y>0; y--) {
+  for(int yi=h; yi>0; yi--) {
     const uint16_t *pcolors_row = pcolors; 
-    for(x=w; x>1; x--) {
+    for(int xi=w; xi>1; xi--) {
       writedata16(*pcolors++);
     }
     writedata16_last(*pcolors++);
     pcolors = pcolors_row + image_width;
-	// TODO: needs midTransaction() !!
+	y++;
+	midTransaction(x, y, x+w-1, y+h-1);
   }
   endSPITransaction();
 }
@@ -1573,9 +1577,9 @@ void ST7735_t3::writeSubImageRectBytesReversed(int16_t x, int16_t y, int16_t w, 
   beginSPITransaction();
   setAddr(x, y, x+w-1, y+h-1);
   writecommand(ST7735_RAMWR);
-  for(y=h; y>0; y--) {
+  for(int yi=h; yi>0; yi--) {
     const uint16_t *pcolors_row = pcolors; 
-    for(x=w; x>1; x--) {
+    for(int xi=w; xi>1; xi--) {
       uint16_t color = *pcolors++;
       color = ((color & 0xff) << 8) + (color >> 8);
       writedata16(color);
@@ -1584,7 +1588,8 @@ void ST7735_t3::writeSubImageRectBytesReversed(int16_t x, int16_t y, int16_t w, 
 	color = ((color & 0xff) << 8) + (color >> 8);
 	writedata16_last(color);
     pcolors = pcolors_row + image_width;
-	// TODO: needs midTransaction() !!
+	y++;
+	midTransaction(x, y, x+w-1, y+h-1);
   }
   endSPITransaction();
 }
@@ -1662,17 +1667,18 @@ void ST7735_t3::writeRect8BPP(int16_t x, int16_t y, int16_t w, int16_t h,
   beginSPITransaction();
   setAddr(x, y, x + w - 1, y + h - 1);
   writecommand(ST7735_RAMWR);
-  for (y = h; y > 0; y--) {
+  for(int yi=h; yi>0; yi--) {
     pixels += x_clip_left;
     // Serial.printf("%x: ", (uint32_t)pixels);
-    for (x = w; x > 1; x--) {
+    for(int xi=w; xi>1; xi--) {
       // Serial.print(*pixels, DEC);
       writedata16(palette[*pixels++]);
     }
     // Serial.println(*pixels, DEC);
     writedata16_last(palette[*pixels++]);
     pixels += x_clip_right;
-	// TODO: needs midTransaction() !!
+	y++;
+	midTransaction(x, y, x+w-1, y+h-1);
   }
   endSPITransaction();
 }
@@ -1807,7 +1813,7 @@ void ST7735_t3::writeRectNBPP(int16_t x, int16_t y, int16_t w, int16_t h,
   beginSPITransaction();
   setAddr(x, y, x + w - 1, y + h - 1);
   writecommand(ST7735_RAMWR);
-  for (; h > 0; h--) {
+  for (int hi = h; hi > 0; hi--) {
     pixels = pixels_row_start;            // setup for this row
     uint8_t pixel_shift = row_shift_init; // Setup mask
 
@@ -1821,7 +1827,8 @@ void ST7735_t3::writeRectNBPP(int16_t x, int16_t y, int16_t w, int16_t h,
       }
     }
     pixels_row_start += count_of_bytes_per_row;
-	// TODO: needs midTransaction() !!
+	y++;
+	midTransaction(x, y, x+w-1, y+h-1);
   }
   writecommand_last(ST7735_NOP);
   endSPITransaction();
@@ -3928,7 +3935,8 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 			// compute the actual region we will output given 
 			beginSPITransaction();
 		
-			setAddr((x_start >= _displayclipx1) ? x_start : _displayclipx1, 
+			uint16_t x0 = (x_start >= _displayclipx1) ? x_start : _displayclipx1; // save for mid-transaction
+			setAddr(x0, 
 					(y_start >= _displayclipy1) ? y_start : _displayclipy1, 
 					x_end  - 1,  y_end - 1); 
 			writecommand(ST7735_RAMWR);
@@ -3946,7 +3954,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}					
 				}
 				y++;
-				// TODO: needs midTransaction() !! or replace with fillRect()?
+				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
 			}
 			//Serial.println("    After top fill"); Serial.flush();
 			// Now lets output all of the pixels for each of the rows.. 
@@ -3992,7 +4000,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 				        }
 			    	}
 		        	y++;	// remember which row we just output
-					// TODO: needs midTransaction() !!
+					midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
 			    }
 		    }
 		    // And output any more rows below us...
@@ -4006,7 +4014,7 @@ void ST7735_t3::drawGFXFontChar(unsigned int c) {
 					}
 				}
 				y++;
-				// TODO: needs midTransaction() !! 
+				midTransaction(x0, (y >= _displayclipy1) ? y : _displayclipy1, x+w-1, y+h-1);
 			}
 			writecommand_last(ST7735_NOP);
 			endSPITransaction();
@@ -4308,9 +4316,12 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 			uint16_t *pftbft = _pfbtft;
 
 			// Quick write out the data;
+			int16_t y = 0;
 			while (pftbft < pfbtft_end) {
-				writedata16(*pftbft++);
-				// TODO: needs midTransaction() !! 
+				for (int x=0;x<(y<_height-1?_width:(_width-1));x++)
+					writedata16(*pftbft++);
+				y++;
+				midTransaction(0, y, _width-1, _height-1-1);
 			}
 			writedata16_last(*pftbft);
 		} else {
@@ -4352,7 +4363,8 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 					else
 						writedata16_last(*pfbPixel);
 					pfbPixel_row += _width; // setup for the next row.
-			// TODO: needs midTransaction() !!
+					// y hasn't yet been incremented! Optimiser will sort this out
+					midTransaction(start_x, y+1, end_x, end_y);
 				}
 			}
 		}
