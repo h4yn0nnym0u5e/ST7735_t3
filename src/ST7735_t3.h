@@ -214,6 +214,7 @@ typedef class ST7735DMA_Data_class {
     void setDMAnext(int snum)
     {
       // SLAST is negative, so subtract chunk size * number of chunk settings
+      snum %= nSettings;
       _dmasettings[snum].TCD->SADDR = (uint8_t*) (_dmasettings[snum].TCD->SADDR) 
                                     - _dmasettings[snum].TCD->SLAST*nSettings;
     }

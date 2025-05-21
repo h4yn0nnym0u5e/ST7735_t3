@@ -4135,13 +4135,15 @@ void ST7735_t3::process_dma_interrupt(void) {
     // Serial.print("-");
   } else {
 
-    _dma_frame_count++;
-	if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount()) // last frame
-      _dma_data[_spi_num]._dmatx.disableOnCompletion();
+	_dma_frame_count++;
+    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount()) // last frame
+      	_dma_data[_spi_num]._dmatx.disableOnCompletion();
+	//else
+	//	_dma_data[_spi_num].setDMAnext(_dma_frame_count); // frame setting is % number of chunks
 
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames...
-    if (_dma_frame_count > _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) {
+    if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) {
       // We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
@@ -4483,9 +4485,14 @@ void	ST7735_t3::initDMASettings(void)
 	// First time we init...
 	// Set up all three settings to chain off one another
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
+
+	/*
 	_dma_data[_spi_num].setDMA(0, _pfbtft + 0*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 1);
 	_dma_data[_spi_num].setDMA(1, _pfbtft + 1*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 2);
 	_dma_data[_spi_num].setDMA(2, _pfbtft + 2*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 0);
+	/*/
+	_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+	//*/
 
 	if (_cnt_dma_settings > 2) 
 	{
@@ -4683,7 +4690,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
 	//_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE);
-	//_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
+	_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	beginSPITransaction();
 	// Doing full window.
 
