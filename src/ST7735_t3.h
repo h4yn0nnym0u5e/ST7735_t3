@@ -42,6 +42,7 @@
 #endif
 
 
+//#define ST7735_SPICLOCK 80'000'000
 //#define ST7735_SPICLOCK 40'000'000
 //#define ST7735_SPICLOCK 24'000'000
 #define ST7735_SPICLOCK 16'000'000
@@ -180,9 +181,20 @@ typedef struct {
 // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into
 // as to move it out of the memory that is cached...
 #define ST77XX_DMA_BUFFER_SIZE 512
-typedef struct {
-  DMASetting      _dmasettings[3];
-  DMAChannel      _dmatx;
+typedef class {
+  public:
+    DMASetting      _dmasettings[3];
+    DMAChannel      _dmatx;
+
+    IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
+    void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
+    {
+      _dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
+      _dmasettings[snum].destination(_pimxrt_spi->TDR);
+      _dmasettings[snum].TCD->ATTR_DST = 1;
+      _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
+    }
+    void setSPIhw(IMXRT_LPSPI_t * _spi) { _pimxrt_spi = _spi; }
 } ST7735DMA_Data;
 #endif
 

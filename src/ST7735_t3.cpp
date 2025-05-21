@@ -4472,41 +4472,35 @@ void	ST7735_t3::initDMASettings(void)
 	if (COUNT_WORDS_WRITE >= 32768) {
 		COUNT_WORDS_WRITE = (height() * width()) / 3;
 		_cnt_dma_settings = 3;
+		if (COUNT_WORDS_WRITE >= 32768) COUNT_WORDS_WRITE = 32766; // max it out! Even number, tho'
 	}
 
-  // First time we init...
-  _dma_data[_spi_num]._dmasettings[0].sourceBuffer(_pfbtft, (COUNT_WORDS_WRITE)*2);
-  _dma_data[_spi_num]._dmasettings[0].destination(_pimxrt_spi->TDR);
-  _dma_data[_spi_num]._dmasettings[0].TCD->ATTR_DST = 1;
-  _dma_data[_spi_num]._dmasettings[0].replaceSettingsOnCompletion(_dma_data[_spi_num]._dmasettings[1]);
+	// First time we init...
+	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
+	_dma_data[_spi_num].setDMA(0, _pfbtft + 0*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 1);
+	_dma_data[_spi_num].setDMA(1, _pfbtft + 1*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 2);
+	_dma_data[_spi_num].setDMA(2, _pfbtft + 2*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 0);
 
-  _dma_data[_spi_num]._dmasettings[1].sourceBuffer(&_pfbtft[COUNT_WORDS_WRITE],
-                               COUNT_WORDS_WRITE * 2);
-  _dma_data[_spi_num]._dmasettings[1].destination(_pimxrt_spi->TDR);
-  _dma_data[_spi_num]._dmasettings[1].TCD->ATTR_DST = 1;
-
-	if (_cnt_dma_settings == 3) {
-  	_dma_data[_spi_num]._dmasettings[1].replaceSettingsOnCompletion(_dma_data[_spi_num]._dmasettings[2]);
-    _dma_data[_spi_num]._dmasettings[2].sourceBuffer(&_pfbtft[COUNT_WORDS_WRITE * 2],
-                                 COUNT_WORDS_WRITE * 2);
-    _dma_data[_spi_num]._dmasettings[2].destination(_pimxrt_spi->TDR);
-    _dma_data[_spi_num]._dmasettings[2].TCD->ATTR_DST = 1;
-    _dma_data[_spi_num]._dmasettings[2].replaceSettingsOnCompletion(_dma_data[_spi_num]._dmasettings[0]);
-    _dma_data[_spi_num]._dmasettings[2].interruptAtCompletion();
+	if (_cnt_dma_settings == 3) 
+	{
+	    _dma_data[_spi_num]._dmasettings[2].interruptAtCompletion();
 
 		// 3 in chain so half done is half of 1...		
-	  if (_frame_callback_on_HalfDone)
-	    _dma_data[_spi_num]._dmasettings[1].interruptAtHalf();
-	  else
-	    _dma_data[_spi_num]._dmasettings[1].TCD->CSR &= ~DMA_TCD_CSR_INTHALF;
-	} else {
-    _dma_data[_spi_num]._dmasettings[1].replaceSettingsOnCompletion(_dma_data[_spi_num]._dmasettings[0]);
-    _dma_data[_spi_num]._dmasettings[1].interruptAtCompletion();
-	  if (_frame_callback_on_HalfDone)
-	    _dma_data[_spi_num]._dmasettings[0].interruptAtCompletion();
-	  else
-	    _dma_data[_spi_num]._dmasettings[0].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
+	  	if (_frame_callback_on_HalfDone)
+	    	_dma_data[_spi_num]._dmasettings[1].interruptAtHalf();
+	  	else
+	    	_dma_data[_spi_num]._dmasettings[1].TCD->CSR &= ~DMA_TCD_CSR_INTHALF;
+	} 
+	else 
+	{
+		_dma_data[_spi_num]._dmasettings[1].replaceSettingsOnCompletion(_dma_data[_spi_num]._dmasettings[0]);
+		_dma_data[_spi_num]._dmasettings[1].interruptAtCompletion();
+		if (_frame_callback_on_HalfDone)
+	    	_dma_data[_spi_num]._dmasettings[0].interruptAtCompletion();
+	  	else
+	    	_dma_data[_spi_num]._dmasettings[0].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	}
+	
 	// Setup DMA main object
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
