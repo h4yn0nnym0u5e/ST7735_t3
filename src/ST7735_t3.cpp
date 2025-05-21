@@ -4135,15 +4135,16 @@ void ST7735_t3::process_dma_interrupt(void) {
     // Serial.print("-");
   } else {
 
-	_dma_frame_count++;
-    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount()) // last frame
-      	_dma_data[_spi_num]._dmatx.disableOnCompletion();
+	_dma_frame_count++; // DMA is currently outputting this frame #
+    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount()) // frame is last one...
+      	_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
 	else
 		_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
 
     _dma_sub_frame_count = 0;
-    // See if we are in continuous mode, or haven't done enough frames...
-    if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) {
+    // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
+    if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
+	{
       // We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
@@ -4480,19 +4481,10 @@ void	ST7735_t3::initDMASettings(void)
 	Serial.printf("Do %d chunks of %d words each\n",_cnt_dma_settings,COUNT_WORDS_WRITE); Serial.flush();
 	_dma_data[_spi_num].setFrameCount(_cnt_dma_settings);
 	_cnt_dma_settings = 3; // prevent crash for now!
-	//COUNT_WORDS_WRITE = 24'000;
 
 	// First time we init...
-	// Set up all three settings to chain off one another
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 
-	/*
-	_dma_data[_spi_num].setDMA(0, _pfbtft + 0*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 1);
-	_dma_data[_spi_num].setDMA(1, _pfbtft + 1*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 2);
-	_dma_data[_spi_num].setDMA(2, _pfbtft + 2*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 0);
-	/*/
-	//_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
-	//*/
 /*
 	if (_cnt_dma_settings > 2) 
 	{
@@ -4689,11 +4681,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-  	dumpDMASettings();
 	_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
-  	dumpDMASettings();
-
-	_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	beginSPITransaction();
 	// Doing full window.
 
@@ -4720,7 +4708,6 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if (update_cont) {
 		_dma_state |= ST77XX_DMA_CONT;
 	} else {
-		//_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
 		_dma_state &= ~ST77XX_DMA_CONT;
 	}
 
@@ -4798,12 +4785,13 @@ void ST7735_t3::endUpdateAsync() {
 	// make sure it is on
 	#ifdef ENABLE_ST77XX_FRAMEBUFFER
 	if (_dma_state & ST77XX_DMA_CONT) {
-		_dma_state &= ~ST77XX_DMA_CONT; // Turn off the continueous mode
+		_dma_state &= ~ST77XX_DMA_CONT; // Turn off the continuous mode
 #if defined(__MK66FX1M0__)
 		_dmasettings[_spi_num][_cnt_dma_settings].disableOnCompletion();
 #endif
 #if defined(__IMXRT1062__)
-    _dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
+   	_dma_data[_spi_num].endUpdate(); // stop after current chunk
+	_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
 #endif
 	}
 	#endif
@@ -4816,8 +4804,10 @@ void ST7735_t3::waitUpdateAsyncComplete(void)
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
 #endif
 
-	while ((_dma_state & ST77XX_DMA_ACTIVE)) {
+	while ((_dma_state & ST77XX_DMA_ACTIVE)) 
+	{
 		// asm volatile("wfi");
+		yield(); // could be many milliseconds...
 	};
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, LOW);

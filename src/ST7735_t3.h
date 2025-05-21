@@ -219,6 +219,11 @@ typedef class ST7735DMA_Data_class {
                                     - _dmasettings[snum].TCD->SLAST*nSettings;
     }
 
+    void endUpdate(void)
+    {
+      _dmatx.disableOnCompletion(); 
+    }
+
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
     void setFrameCount(int fc) { frameCount = fc; }
     int  getFrameCount(void)   { return frameCount; }
