@@ -4136,11 +4136,14 @@ void ST7735_t3::process_dma_interrupt(void) {
   } else {
 
     _dma_frame_count++;
+	if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount()) // last frame
+      _dma_data[_spi_num]._dmatx.disableOnCompletion();
+
     _dma_sub_frame_count = 0;
-    // See if we are in continuous mode or not..
-    if ((_dma_state & ST77XX_DMA_CONT) == 0) {
-      // We are in single refresh mode or the user has called cancel so
-      // Lets try to release the CS pin
+    // See if we are in continuous mode, or haven't done enough frames...
+    if (_dma_frame_count > _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) {
+      // We are in single refresh mode and we've done all frames,
+      // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
       // _pimxrt_spi->SR);
       while (_pimxrt_spi->FSR & 0x1f)
@@ -4465,23 +4468,26 @@ void	ST7735_t3::initDMASettings(void)
 	else _dmatx.attachInterrupt(dmaInterrupt2);
 
 #elif defined(__IMXRT1062__)  // Teensy 4.x
-	_cnt_dma_settings = 2;   // how many do we need for this display?
+	constexpr int maxDMA = 32767; // max count of words we can DMA in one go
+	_cnt_dma_settings = (_count_pixels + maxDMA) / maxDMA;   // how many DMA blocks do we need for this display?
 
-	uint32_t COUNT_WORDS_WRITE =  (height() * width()) / 2;
-	// The 240x320 display requires us to expand to another DMA setting. 
-	if (COUNT_WORDS_WRITE >= 32768) {
-		COUNT_WORDS_WRITE = (height() * width()) / 3;
-		_cnt_dma_settings = 3;
-		if (COUNT_WORDS_WRITE >= 32768) COUNT_WORDS_WRITE = 32766; // max it out! Even number, tho'
-	}
+	// Words to write per DMA block; note this may get weird for strange 
+	// display sizes, and need a final write with a different word count
+	// Assume not for now...
+	COUNT_WORDS_WRITE =  _count_pixels / _cnt_dma_settings; 
+	Serial.printf("Do %d chunks of %d words each\n",_cnt_dma_settings,COUNT_WORDS_WRITE); Serial.flush();
+	_dma_data[_spi_num].setFrameCount(_cnt_dma_settings);
+	_cnt_dma_settings = 3; // prevent crash for now!
+	//COUNT_WORDS_WRITE = 24'000;
 
 	// First time we init...
+	// Set up all three settings to chain off one another
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 	_dma_data[_spi_num].setDMA(0, _pfbtft + 0*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 1);
 	_dma_data[_spi_num].setDMA(1, _pfbtft + 1*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 2);
 	_dma_data[_spi_num].setDMA(2, _pfbtft + 2*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 0);
 
-	if (_cnt_dma_settings == 3) 
+	if (_cnt_dma_settings > 2) 
 	{
 	    _dma_data[_spi_num]._dmasettings[2].interruptAtCompletion();
 
@@ -4500,7 +4506,7 @@ void	ST7735_t3::initDMASettings(void)
 	  	else
 	    	_dma_data[_spi_num]._dmasettings[0].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	}
-	
+
 	// Setup DMA main object
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
@@ -4676,7 +4682,8 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-	_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
+	//_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE);
+	//_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	beginSPITransaction();
 	// Doing full window.
 
@@ -4703,7 +4710,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if (update_cont) {
 		_dma_state |= ST77XX_DMA_CONT;
 	} else {
-		_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
+		//_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].disableOnCompletion();
 		_dma_state &= ~ST77XX_DMA_CONT;
 	}
 

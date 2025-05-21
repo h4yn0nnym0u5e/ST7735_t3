@@ -181,20 +181,46 @@ typedef struct {
 // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into
 // as to move it out of the memory that is cached...
 #define ST77XX_DMA_BUFFER_SIZE 512
-typedef class {
+typedef class ST7735DMA_Data_class {
+    static constexpr int nSettings = 3;
   public:
-    DMASetting      _dmasettings[3];
+    DMASetting      _dmasettings[nSettings];
     DMAChannel      _dmatx;
 
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
+    int frameCount; // number of frames needed for a complete update
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
       _dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
       _dmasettings[snum].destination(_pimxrt_spi->TDR);
       _dmasettings[snum].TCD->ATTR_DST = 1;
       _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
+ 	    _dmasettings[snum].interruptAtCompletion();
     }
-    void setSPIhw(IMXRT_LPSPI_t * _spi) { _pimxrt_spi = _spi; }
+
+    void setDMAall(uint16_t* _pfbtft, uint32_t byteCount)
+    {
+      int n = 1;
+      for (int i = 0; i < nSettings; i++)
+      {
+        setDMA(i,_pfbtft,byteCount,n);
+        _pfbtft += byteCount / 2;
+        n++;
+        if (n >= nSettings) 
+          n = 0;
+      }
+    }
+
+    void setDMAnext(int snum)
+    {
+      // SLAST is negative, so subtract chunk size * number of chunk settings
+      _dmasettings[snum].TCD->SADDR = (uint8_t*) (_dmasettings[snum].TCD->SADDR) 
+                                    - _dmasettings[snum].TCD->SLAST*nSettings;
+    }
+
+    void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
+    void setFrameCount(int fc) { frameCount = fc; }
+    int  getFrameCount(void)   { return frameCount; }
 } ST7735DMA_Data;
 #endif
 
@@ -247,6 +273,7 @@ class ST7735_t3 : public Print
   void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1000000 * us;}
   void enableYieldInMidTransaction(bool en) { yieldInMidTransaction = en; }
 uint32_t maxTransactionLengthSeen; // in CPU cycles
+  int getFrameCount(int bus) { return _dma_frame_count; }
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     __attribute__((always_inline)) {
@@ -444,7 +471,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  endUpdateAsync();      // Turn of the continueous mode fla
   void  dumpDMASettings();
   uint16_t *getFrameBuffer() {return _pfbtft;}
-  uint32_t frameCount() {return _dma_frame_count; }
+  int32_t frameCount() {return _dma_frame_count; }
   uint16_t subFrameCount() { return _dma_sub_frame_count; }
   boolean asyncUpdateActive(void)  {return (_dma_state & ST77XX_DMA_ACTIVE);}
   void  initDMASettings(void);
@@ -789,7 +816,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   //     All three devices have 3 SPI buss so hard coded
   static  ST7735_t3     *_dmaActiveDisplay[3];  // Use pointer to this as a way to get back to object...
   volatile uint8_t      _dma_state;         // DMA status
-  volatile uint32_t     _dma_frame_count;   // Can return a frame count...
+  volatile int32_t      _dma_frame_count;   // Can return a frame count...
   volatile uint16_t     _dma_sub_frame_count = 0; // Can return a frame count...
 
   #if defined(__MK66FX1M0__) 
@@ -799,6 +826,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t      _cnt_dma_settings;   // how many do we need for this display?
 
   #elif defined(__IMXRT1062__)  // Teensy 4.x
+  uint32_t COUNT_WORDS_WRITE;
   uint8_t       _cnt_dma_settings;   // how many do we need for this display?
   static ST7735DMA_Data _dma_data[3];   // one structure for each SPI buss... 
   // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into
