@@ -4138,8 +4138,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 	_dma_frame_count++;
     if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount()) // last frame
       	_dma_data[_spi_num]._dmatx.disableOnCompletion();
-	//else
-	//	_dma_data[_spi_num].setDMAnext(_dma_frame_count); // frame setting is % number of chunks
+	else
+		_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
 
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames...
@@ -4491,9 +4491,9 @@ void	ST7735_t3::initDMASettings(void)
 	_dma_data[_spi_num].setDMA(1, _pfbtft + 1*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 2);
 	_dma_data[_spi_num].setDMA(2, _pfbtft + 2*(COUNT_WORDS_WRITE), (COUNT_WORDS_WRITE)*2, 0);
 	/*/
-	_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+	//_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
 	//*/
-
+/*
 	if (_cnt_dma_settings > 2) 
 	{
 	    _dma_data[_spi_num]._dmasettings[2].interruptAtCompletion();
@@ -4513,7 +4513,7 @@ void	ST7735_t3::initDMASettings(void)
 	  	else
 	    	_dma_data[_spi_num]._dmasettings[0].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	}
-
+*/
 	// Setup DMA main object
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
@@ -4689,7 +4689,10 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-	//_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE);
+  	dumpDMASettings();
+	_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+  	dumpDMASettings();
+
 	_dma_data[_spi_num]._dmasettings[_cnt_dma_settings-1].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
 	beginSPITransaction();
 	// Doing full window.
