@@ -252,6 +252,7 @@ void setup() {
 #if defined ST77XX_BLACK
   tft.init(320, 480);
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
+  tft.setSPISpeed(40'000'000);
 #else  
   tft.begin();
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
