@@ -16,8 +16,11 @@
  * Pick an update mode: 
  * 0 = immediate, 1 = frame buffer 
  * 2 = async frame buffer
+ * 3 = async frame buffer, continuous
+ * 4 = async frame buffer; do in one DMA request
+ * 5 = async frame buffer in PSRAM
  */
-#define UPDATE_MODE 2
+#define UPDATE_MODE 5
 #define INVERT_DISPLAY false
 
 //------------------------------------------------------------
@@ -288,12 +291,22 @@ sgtl5000_1.setAddress(HIGH);
 
   switch (UPDATE_MODE)
   {
+    case 5:
+      {
+        uint16_t* fb = (uint16_t*) extmem_malloc(tft.width() * tft.height() * 2);
+        if (nullptr != fb)
+        {
+          Serial.println("Allocated frame buffer in PSRAM");
+          tft.setFrameBuffer(fb);
+        }
+      }
+      // fallthrough
     default:
       tft.useFrameBuffer(true);
       break;
 
     case 0:
-      break;      
+      break;
   }
   
   delay(100);
@@ -569,10 +582,17 @@ void loop()
         
       case 2:
       case 3:
+      case 5:
         Serial.printf("Async start was %sOK\n",tft.updateScreenAsync(3 == UPDATE_MODE)?"":"not ");
         asyncTime = 0;
         asyncStarted=true;
         delay(10);
+        break;
+
+      case 4:
+        Serial.printf("Async start was %sOK\n",tft.updateScreenAsyncT4()?"":"not ");
+        asyncTime = 0;
+        asyncStarted=true;
         break;
     }
     msecs = 0;
@@ -590,6 +610,7 @@ void loop()
   {
     asyncStarted = false;
     Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
+    delay(500);
   }
 
   if (asyncStarted && msecs > 250)

@@ -180,9 +180,21 @@ typedef struct {
 // Also define these in lower memory so as to make sure they are not cached...
 // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into
 // as to move it out of the memory that is cached...
-#define ST77XX_DMA_BUFFER_SIZE 512
 typedef class ST7735DMA_Data_class {
     static constexpr int nSettings = 3;
+    void sourceBuffer(DMASetting& sb, //!< settings to use
+                      volatile const unsigned short p[],  //!< source of data
+                      unsigned int len, //!< length of data (bytes)
+                      unsigned int nBytes=2) //!< minor loop byte count
+    {
+      sb.TCD->SADDR = p; // memory to read from
+      sb.TCD->SOFF = 2;  // add 2 to memory pointer after each read
+      sb.TCD->ATTR_SRC = 1; // each read is 2 bytes (one pixel)
+      sb.TCD->NBYTES = nBytes; // N/2 pixels per minor loop
+      sb.TCD->SLAST = -len; // no real effect: overwritten by replaceSettingsOnCompletion()
+      sb.TCD->BITER = len / nBytes; // major loop correspondingly shorter
+      sb.TCD->CITER = len / nBytes;
+    }
   public:
     DMASetting      _dmasettings[nSettings];
     DMAChannel      _dmatx;
@@ -191,9 +203,10 @@ typedef class ST7735DMA_Data_class {
     int frameCount; // number of frames needed for a complete update
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
-      _dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
+      //_dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
+      sourceBuffer(_dmasettings[snum], _pfbtft, byteCount);
       _dmasettings[snum].destination(_pimxrt_spi->TDR);
-      _dmasettings[snum].TCD->ATTR_DST = 1;
+      _dmasettings[snum].TCD->ATTR_DST = 1; // 16-bit destination
       _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
  	    _dmasettings[snum].interruptAtCompletion();
     }
@@ -211,6 +224,23 @@ typedef class ST7735DMA_Data_class {
       }
     }
 
+    // Set up to do a single DMA request for the whole screen
+    // Note that due (I think) to the SPI FIFO depth, setting
+    // minorBytes > 32 leads to corrupted output
+    void setDMAone(int snum, 
+                   uint16_t* _pfbtft, 
+                   uint32_t byteCount,
+                   uint32_t minorBytes
+                  )
+    {
+      sourceBuffer(_dmasettings[snum], _pfbtft, byteCount, minorBytes);
+      _dmasettings[snum].TCD->SLAST = 0;
+      _dmasettings[snum].destination(_pimxrt_spi->TDR);
+      _dmasettings[snum].TCD->ATTR_DST = 1; // 16-bit destination
+      _dmasettings[snum].disableOnCompletion();
+ 	    _dmasettings[snum].interruptAtCompletion();
+    }
+
     void setDMAnext(int snum)
     {
       // SLAST is negative, so subtract chunk size * number of chunk settings
@@ -222,6 +252,11 @@ typedef class ST7735DMA_Data_class {
     void endUpdate(void)
     {
       _dmatx.disableOnCompletion(); 
+    }
+
+    bool isActive(void)
+    {
+      return 0 != (DMA_ERQ & (1<<_dmatx.channel));
     }
 
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
@@ -474,7 +509,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t useFrameBuffer(boolean b);    // use the frame buffer?  First call will allocate
   void  freeFrameBuffer(void);      // explicit call to release the buffer
   void  updateScreen(void);       // call to say update the screen now. 
-  bool  updateScreenAsync(bool update_cont = false);  // call to say update the screen optinoally turn into continuous mode. 
+  bool  updateScreenAsync(bool update_cont = false);  // call to say update the screen; optionally turn into continuous mode. 
+  bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
   void  dumpDMASettings();
