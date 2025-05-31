@@ -20,7 +20,7 @@
  * 4 = async frame buffer; do in one DMA request
  * 5 = async frame buffer in PSRAM
  */
-#define UPDATE_MODE 0
+#define UPDATE_MODE 3
 #define INVERT_DISPLAY false
 #define notMICRO_DEXED
 
@@ -624,6 +624,14 @@ void loop()
   if (asyncStarted && tft.asyncUpdateActive() && 3 == UPDATE_MODE)
   {
     elapsedMillis t = 0;
+    do
+    {
+      delay(25);
+      RUN_CHECK(fillRect);
+      delay(25);
+    } while (t < 240);
+    
+    t = 0;
     tft.endUpdateAsync();
     tft.waitUpdateAsyncComplete();
     Serial.printf("Took %dms to stop async update\n", (int) t);
@@ -633,7 +641,7 @@ void loop()
   {
     asyncStarted = false;
     Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
-    delay(500);
+    //delay(500);
   }
 
 #if defined ST77XX_BLACK

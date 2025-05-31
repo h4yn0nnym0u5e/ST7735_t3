@@ -4136,7 +4136,10 @@ void ST7735_t3::process_dma_interrupt(void) {
   } else {
 
 	_dma_frame_count++; // DMA is currently outputting this frame #
-    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount()) // frame is last one...
+    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount() // frame is last one...
+		&& (_dma_state & ST77XX_DMA_CONT) == 0
+		&& _dma_data[_spi_num].isActive()
+		) // not continuous
       	_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
 	else
 		_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks

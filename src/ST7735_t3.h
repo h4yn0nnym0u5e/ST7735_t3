@@ -195,11 +195,13 @@ typedef class ST7735DMA_Data_class {
       sb.TCD->BITER = len / nBytes; // major loop correspondingly shorter
       sb.TCD->CITER = len / nBytes;
     }
+    bool asyncEnded; // this is a bit of a hack - fix later...
   public:
     DMASetting      _dmasettings[nSettings];
     DMAChannel      _dmatx;
 
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
+    uint16_t* fbBase;
     int frameCount; // number of frames needed for a complete update
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
@@ -209,11 +211,14 @@ typedef class ST7735DMA_Data_class {
       _dmasettings[snum].TCD->ATTR_DST = 1; // 16-bit destination
       _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
  	    _dmasettings[snum].interruptAtCompletion();
+
+      asyncEnded = false;
     }
 
     void setDMAall(uint16_t* _pfbtft, uint32_t byteCount)
     {
       int n = 1;
+      fbBase = _pfbtft;
       for (int i = 0; i < nSettings; i++)
       {
         setDMA(i,_pfbtft,byteCount,n);
@@ -239,24 +244,31 @@ typedef class ST7735DMA_Data_class {
       _dmasettings[snum].TCD->ATTR_DST = 1; // 16-bit destination
       _dmasettings[snum].disableOnCompletion();
  	    _dmasettings[snum].interruptAtCompletion();
+
+      asyncEnded = false;
     }
 
     void setDMAnext(int snum)
     {
       // SLAST is negative, so subtract chunk size * number of chunk settings
+      int addrOff = (snum + nSettings) % frameCount;
       snum %= nSettings;
+      /*
       _dmasettings[snum].TCD->SADDR = (uint8_t*) (_dmasettings[snum].TCD->SADDR) 
                                     - _dmasettings[snum].TCD->SLAST*nSettings;
+      */
+     _dmasettings[snum].TCD->SADDR = (uint8_t*) fbBase - _dmasettings[snum].TCD->SLAST*addrOff;
     }
 
     void endUpdate(void)
     {
       _dmatx.disableOnCompletion(); 
+      asyncEnded = true;
     }
 
     bool isActive(void)
     {
-      return 0 != (DMA_ERQ & (1<<_dmatx.channel));
+      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) || !asyncEnded;
     }
 
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
