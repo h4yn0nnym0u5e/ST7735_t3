@@ -4143,7 +4143,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
-    if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
+    //if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
+	if (!_dma_data[_spi_num].isActive())
 	{
       // We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
@@ -4779,7 +4780,110 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
     return false;     // no frame buffer so will never start... 
 	#endif
 
-}			 
+}	
+
+
+bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update the screen now.
+{
+	// Not sure if better here to check flag or check existence of buffer.
+	// Will go by buffer as maybe can do interesting things?
+	// BUGBUG:: only handles full screen so bail on the rest of it...
+	// Also bail if we are working with a hardware SPI port. 
+#ifdef ENABLE_ST77XX_FRAMEBUFFER
+	if (!_use_fbtft || !_pspi) return false;
+
+
+#ifdef DEBUG_ASYNC_LEDS
+	digitalWriteFast(DEBUG_PIN_1, HIGH);
+#endif
+	// Init DMA settings. 
+	initDMASettings();
+
+	// Don't start one if already active.
+	if (_dma_state & ST77XX_DMA_ACTIVE) {
+	#ifdef DEBUG_ASYNC_LEDS
+		digitalWriteFast(DEBUG_PIN_1, LOW);
+	#endif
+		return false;
+	}
+
+	//==========================================
+	// T4
+	//==========================================
+#if defined(__IMXRT1062__)  // Teensy 4.x
+	/////////////////////////////
+	// BUGBUG try first not worry about continuous or not.
+	// Start off remove disable on completion from both...
+	// it will be the ISR that disables it...
+	if ((uint32_t)_pfbtft >= 0x20200000u)
+		arm_dcache_flush(_pfbtft, _count_pixels*2);
+
+/*
+ Note to future self: 
+ Since SPI seems to be limited to 32 bytes / 16 words per minor loop,
+ in accordance with the data sheet FIFO depth of 16 words, we need a 
+ strategy for a non-whole-screen area. 
+
+ In this case we need to adjust the SADDR every row of output, which the
+ DMA can do, but it only does this every time the major count expires, at
+ which point we'll be interrupted. But that's relatively OK, as we can
+ just count rows and immediately re-trigger if we're not complete. 
+
+ Say we have a 40x30 area to write. This gives us one TCD with two major
+ iterations transferring 16 pixels each, chained to the next with one major
+ iteration of 8 pixels for a row total of 40 pixels. Repeat 30x. 
+
+ Bad case: 33 pixels wide. Now the second TCD only writes a single pixel, if
+ we use the naive method, so risks stuff not being ready in time if the
+ interrupt latency is poor. 
+ */		
+	// Single DMA request for whole area
+	uint32_t screenSize = _height*_width, minorBytes = 32;
+	Serial.printf("Write %d words in minor chunks of %d bytes\n", screenSize, minorBytes);
+	_dma_data[_spi_num].setDMAone(0,_pfbtft, screenSize*2, minorBytes);
+#ifdef DEBUG_ASYNC_UPDATE
+	dumpDMASettings();
+#endif
+  	beginSPITransaction();
+	// Doing full window.
+
+	setAddr(0, 0, _width - 1, _height - 1);
+	writecommand_last(ST7735_RAMWR);
+
+	// Update TCR to 16 bit mode. and output the first entry.
+	_spi_fcr_save = _pimxrt_spi->FCR; // remember the FCR
+	_pimxrt_spi->FCR = 0;             // clear water marks...
+	maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |
+					LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
+	_pimxrt_spi->DER = LPSPI_DER_TDDE;
+	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
+
+	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
+
+	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]. _dmasettings[0];
+
+	_dma_data[_spi_num]._dmatx.begin(false);
+	_dma_data[_spi_num]._dmatx.enable();
+
+	_dma_frame_count = 0; // Set frame count back to zero.
+	_dmaActiveDisplay[_spi_num] = this;
+	if (update_cont) {
+		_dma_state |= ST77XX_DMA_CONT;
+	} else {
+		_dma_state &= ~ST77XX_DMA_CONT;
+	}
+
+	_dma_state |= ST77XX_DMA_ACTIVE;
+
+#endif	// defined(__IMXRT1062__)
+#ifdef DEBUG_ASYNC_LEDS
+	digitalWriteFast(DEBUG_PIN_1, LOW);
+#endif
+	return true;
+#else
+    return false;     // no frame buffer so will never start... 
+#endif // ENABLE_ST77XX_FRAMEBUFFER
+}	
 
 void ST7735_t3::endUpdateAsync() {
 	// make sure it is on

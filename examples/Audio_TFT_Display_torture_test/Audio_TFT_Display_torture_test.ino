@@ -20,8 +20,9 @@
  * 4 = async frame buffer; do in one DMA request
  * 5 = async frame buffer in PSRAM
  */
-#define UPDATE_MODE 5
+#define UPDATE_MODE 0
 #define INVERT_DISPLAY false
+#define notMICRO_DEXED
 
 //------------------------------------------------------------
 
@@ -66,14 +67,29 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
 
-// Use these with the Teensy 4.x and Audio Shield Rev D or D2
-// these are h4yn0nnymou5e pin assignments - you may need to change them
-#define TFT_DC       9
-#define TFT_CS      22
-//#define TFT_CS      10
-#define TFT_RST    255  // 255 = unused, connect to 3.3V
+#if defined(MICRO_DEXED)
+  #define TFT_DC      37
+  #define TFT_CS      41
+  #define TFT_MOSI    26
+  #define TFT_MISO   255
+  #define TFT_SCLK    27
+  #define TFT_RST     24  // 255 = unused, connect to 3.3V
 
-#define LED_PWM  4 // used to set brightness of LED backlight
+  #define LED_PWM 255 // used to set brightness of LED backlight
+  #define ROTATE 3
+  #undef INVERT_DISPLAY
+  #define INVERT_DISPLAY true
+#else
+  // Use these with the Teensy 4.x and Audio Shield Rev D or D2
+  // these are h4yn0nnymou5e pin assignments - you may need to change them
+  #define TFT_DC       9
+  #define TFT_CS      22
+  //#define TFT_CS      10
+  #define TFT_RST    255  // 255 = unused, connect to 3.3V
+
+  #define LED_PWM  4 // used to set brightness of LED backlight
+  #define ROTATE 1
+#endif // defined(MICRO_DEXED)
 
 
 #if defined ST77XX_BLACK
@@ -99,7 +115,11 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   #define ILI9341_PINK 0xF81F
 #else
   #if defined(_ILI9341_t3NH_)
-    ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC);//, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+    #if  defined(MICRO_DEXED)
+      ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+    #else
+      ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC);//, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+    #endif // defined(MICRO_DEXED)
   #else
     ILI9341_t3  tft = ILI9341_t3(TFT_CS, TFT_DC);//, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
   #endif // defined(_ILI9341_t3NH_)
@@ -258,12 +278,13 @@ void setup() {
   tft.setSPISpeed(40'000'000);
 #else  
   tft.begin();
-  tft.setRotation(1);       // Rotates screen to match the baseboard orientation
+  tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
 #endif // defined ST77XX_BLACK
 
   //initPalette();
 
   tft.invertDisplay(INVERT_DISPLAY);  // LCD may require colors to be inverted
+  tft.setTextWrap(false);
 
   tft.fillScreen(ST7735_BLACK);
 
@@ -589,11 +610,13 @@ void loop()
         delay(10);
         break;
 
+#if  defined ST77XX_BLACK
       case 4:
         Serial.printf("Async start was %sOK\n",tft.updateScreenAsyncT4()?"":"not ");
         asyncTime = 0;
         asyncStarted=true;
         break;
+#endif // defined ST77XX_BLACK
     }
     msecs = 0;
   }
@@ -613,9 +636,12 @@ void loop()
     delay(500);
   }
 
+#if defined ST77XX_BLACK
   if (asyncStarted && msecs > 250)
   {
     msecs = 0;
     Serial.printf("Frames: %d\n", tft.getFrameCount(0));
   }
+#endif // defined ST77XX_BLACK
+
 }
