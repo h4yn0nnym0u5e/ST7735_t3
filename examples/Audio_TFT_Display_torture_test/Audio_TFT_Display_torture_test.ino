@@ -19,8 +19,9 @@
  * 3 = async frame buffer, continuous
  * 4 = async frame buffer; do in one DMA request
  * 5 = async frame buffer in PSRAM
+ * 6 = async frame buffer, IRQ every chunk
  */
-#define UPDATE_MODE 3
+#define UPDATE_MODE 6
 #define INVERT_DISPLAY false
 #define notMICRO_DEXED
 
@@ -41,6 +42,7 @@
   #define ST7735_RED ILI9341_RED
   #define ST7735_YELLOW ILI9341_YELLOW
   #define ST7735_GREEN ILI9341_GREEN
+  #define ST7735_CYAN ILI9341_CYAN
   #define ST7735_BLUE ILI9341_BLUE
   #define ST7735_MAGENTA ILI9341_MAGENTA
   #define ST7735_WHITE ILI9341_WHITE
@@ -276,6 +278,7 @@ void setup() {
   tft.init(320, 480);
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
   tft.setSPISpeed(40'000'000);
+  tft.attachInterrupt(224); // lower the DMA interrupt priority
 #else  
   tft.begin();
   tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
@@ -341,7 +344,7 @@ elapsedMillis msecs;
  * in long-running transactions
  */
 elapsedMicros checkMicros;
-uint16_t colours[] = {ST7735_RED, CL(255,128,0), ST7735_YELLOW, ST7735_GREEN, ST7735_BLUE, ST7735_MAGENTA, ST7735_WHITE};
+uint16_t colours[] = {ST7735_RED, CL(255,128,0), ST7735_YELLOW, ST7735_GREEN, ST7735_CYAN, ST7735_BLUE, ST7735_MAGENTA, ST7735_WHITE};
 
 uint16_t nextColour(void)
 {
@@ -610,6 +613,13 @@ void loop()
         delay(10);
         break;
 
+      case 6:
+        Serial.printf("Async start was %sOK\n",tft.updateScreenAsync(false,true)?"":"not ");
+        asyncTime = 0;
+        asyncStarted=true;
+        delay(10);
+        break;
+
 #if  defined ST77XX_BLACK
       case 4:
         Serial.printf("Async start was %sOK\n",tft.updateScreenAsyncT4()?"":"not ");
@@ -640,8 +650,9 @@ void loop()
   if (asyncStarted && !tft.asyncUpdateActive())
   {
     asyncStarted = false;
-    Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
-    //delay(500);
+    if (3 != UPDATE_MODE) // timer makes no sense for continuous update
+      Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
+    delay(500);
   }
 
 #if defined ST77XX_BLACK

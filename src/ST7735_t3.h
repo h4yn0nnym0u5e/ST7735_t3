@@ -195,7 +195,6 @@ typedef class ST7735DMA_Data_class {
       sb.TCD->BITER = len / nBytes; // major loop correspondingly shorter
       sb.TCD->CITER = len / nBytes;
     }
-    bool asyncEnded; // this is a bit of a hack - fix later...
   public:
     DMASetting      _dmasettings[nSettings];
     DMAChannel      _dmatx;
@@ -203,14 +202,20 @@ typedef class ST7735DMA_Data_class {
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
     int frameCount; // number of frames needed for a complete update
+    bool asyncEnded; // this is a bit of a hack - fix later...
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
       //_dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
       sourceBuffer(_dmasettings[snum], _pfbtft, byteCount);
       _dmasettings[snum].destination(_pimxrt_spi->TDR);
       _dmasettings[snum].TCD->ATTR_DST = 1; // 16-bit destination
-      _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
- 	    _dmasettings[snum].interruptAtCompletion();
+      if (nextSettings >= 0)
+      {
+        _dmasettings[snum].replaceSettingsOnCompletion(_dmasettings[nextSettings]);     
+        _dmasettings[snum].interruptAtCompletion();
+      }
+      else
+        _dmasettings[snum].disableOnCompletion();
 
       asyncEnded = false;
     }
@@ -253,10 +258,6 @@ typedef class ST7735DMA_Data_class {
       // SLAST is negative, so subtract chunk size * number of chunk settings
       int addrOff = (snum + nSettings) % frameCount;
       snum %= nSettings;
-      /*
-      _dmasettings[snum].TCD->SADDR = (uint8_t*) (_dmasettings[snum].TCD->SADDR) 
-                                    - _dmasettings[snum].TCD->SLAST*nSettings;
-      */
      _dmasettings[snum].TCD->SADDR = (uint8_t*) fbBase - _dmasettings[snum].TCD->SLAST*addrOff;
     }
 
@@ -274,6 +275,7 @@ typedef class ST7735DMA_Data_class {
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
     void setFrameCount(int fc) { frameCount = fc; }
     int  getFrameCount(void)   { return frameCount; }
+    int8_t getDMAsettingsCount(void) { return nSettings; }
 } ST7735DMA_Data;
 #endif
 
@@ -514,6 +516,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         ST77XX_DMA_EVER_INIT = 0x08,
         ST77XX_DMA_CONT=0x02, 
         ST77XX_DMA_FINISH=0x04,
+        ST77XX_DMA_IRQ_EVERY=0x10,
         ST77XX_DMA_ACTIVE=0x80};
 
   // added support to use optional Frame buffer
@@ -521,8 +524,10 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t useFrameBuffer(boolean b);    // use the frame buffer?  First call will allocate
   void  freeFrameBuffer(void);      // explicit call to release the buffer
   void  updateScreen(void);       // call to say update the screen now. 
-  bool  updateScreenAsync(bool update_cont = false);  // call to say update the screen; optionally turn into continuous mode. 
+  bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
+  void  attachInterrupt(int prio = 128) { _attachInterrupt(prio); }
+  void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
   void  dumpDMASettings();
@@ -538,7 +543,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t useFrameBuffer(boolean b) {return 0;};    // use the frame buffer?  First call will allocate
   void  freeFrameBuffer(void) {return;}      // explicit call to release the buffer
   void  updateScreen(void) {return;}       // call to say update the screen now. 
-  bool  updateScreenAsync(bool update_cont = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
+  bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
+  void  attachInterrupt(int prio = 128) {return;}
+  void  setMaxDMAlines(int lines) { return; }
   void  waitUpdateAsyncComplete(void) {return;}
   void  endUpdateAsync() {return;}      // Turn of the continueous mode fla
   void  dumpDMASettings() {return;}
@@ -883,7 +890,37 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   #elif defined(__IMXRT1062__)  // Teensy 4.x
   uint32_t COUNT_WORDS_WRITE;
-  uint8_t       _cnt_dma_settings;   // how many do we need for this display?
+  uint8_t       _cnt_dma_settings;   // how many do we have for this display?
+
+  /*
+   * Set number of display lines to DMA out before we interrupt.
+   * Current assumption is that this divides evenly into the display
+   * height, so 2, 3, 4, 5, 6, 8, 10 ... is OK for a 240-high display,
+   * and 2, 4, 5, 8, 10 ... OK for 320-high. 
+   */
+  void _setMaxDMAlines(int n)
+  {
+    constexpr int DMAmaxWords = 32767;
+    COUNT_WORDS_WRITE = n * _width;
+    if (COUNT_WORDS_WRITE > DMAmaxWords) // can't do chunks that big
+    {
+      int DMAchunks = (_width * _height + DMAmaxWords) / DMAmaxWords;
+      COUNT_WORDS_WRITE = (_width * _height) / DMAchunks; // best we can do
+    }
+    int chunks = (_width * _height) / COUNT_WORDS_WRITE;
+    Serial.printf("Do %d chunks of %d words each\n",chunks,COUNT_WORDS_WRITE); Serial.flush();
+    _dma_data[_spi_num].setFrameCount(chunks);
+    _cnt_dma_settings = _dma_data[_spi_num].getDMAsettingsCount();
+  }
+
+  void _attachInterrupt(int prio = 128)
+  {
+    // probably could use const table of functions...
+    if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt, prio);
+    else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1, prio);
+    else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2, prio);    
+  }
+
   static ST7735DMA_Data _dma_data[3];   // one structure for each SPI buss... 
   // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into
   // as to move it out of the memory that is cached...

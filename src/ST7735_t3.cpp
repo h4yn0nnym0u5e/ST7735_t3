@@ -4135,14 +4135,34 @@ void ST7735_t3::process_dma_interrupt(void) {
     // Serial.print("-");
   } else {
 
-	_dma_frame_count++; // DMA is currently outputting this frame #
+	// If chained, DMA is currently outputting this frame #,
+	// otherwise this is the frame # we want to start, unless
+	// we've now done enough
+	_dma_frame_count++; 
+
     if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount() // frame is last one...
 		&& (_dma_state & ST77XX_DMA_CONT) == 0
 		&& _dma_data[_spi_num].isActive()
 		) // not continuous
+	{
       	_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
+		_dma_data[_spi_num].asyncEnded = true;
+	}
 	else
-		_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
+	{
+		if ((_dma_state & ST77XX_DMA_IRQ_EVERY) != 0) // DMA stopped: restart if needed
+		{
+			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames
+			{
+				// most of the DMA setup is already done - just change stuff and re-enable
+				_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
+				_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
+				_dma_data[_spi_num]._dmatx.enable();
+			}
+		}
+		else // set recently-completed frame ready for next chain
+			_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
+	}
 
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
@@ -4475,17 +4495,7 @@ void	ST7735_t3::initDMASettings(void)
 	else _dmatx.attachInterrupt(dmaInterrupt2);
 
 #elif defined(__IMXRT1062__)  // Teensy 4.x
-	constexpr int maxDMA = 32767; // max count of words we can DMA in one go
-	_cnt_dma_settings = (_count_pixels + maxDMA) / maxDMA;   // how many DMA blocks do we need for this display?
-
-	// Words to write per DMA block; note this may get weird for strange 
-	// display sizes, and need a final write with a different word count
-	// Assume not for now...
-	COUNT_WORDS_WRITE =  _count_pixels / _cnt_dma_settings; 
-	Serial.printf("Do %d chunks of %d words each\n",_cnt_dma_settings,COUNT_WORDS_WRITE); Serial.flush();
-	_dma_data[_spi_num].setFrameCount(_cnt_dma_settings);
-	_cnt_dma_settings = 3; // prevent crash for now!
-
+	_setMaxDMAlines(_height);
 	// First time we init...
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 
@@ -4516,10 +4526,7 @@ void	ST7735_t3::initDMASettings(void)
 	_dma_data[_spi_num]._dmatx.begin(true);
 	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(dmaTXevent);
 	_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
-	// probably could use const table of functions...
-	if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt);
-	else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1);
-	else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2);
+	_attachInterrupt();
 #else
 	// T3.5
 	// Lets setup the write size.  For SPI we can use up to 32767 so same size as we use on T3.6...
@@ -4594,7 +4601,9 @@ void ST7735_t3::dumpDMASettings() {
 
 }
 
-bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update the screen now.
+// call to say update the screen now.
+bool ST7735_t3::updateScreenAsync(bool update_cont, //!< continuous updates
+								  bool interrupt_every)	//!< interrupt after every DMA: no chaining of settings on completion
 {
 	// Not sure if better here to check flag or check existence of buffer.
 	// Will go by buffer as maybe can do interesting things?
@@ -4685,7 +4694,16 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-	_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_IRQ_EVERY);
+	if (interrupt_every)
+	{
+		_dma_data[_spi_num].setDMAone(0,_pfbtft, COUNT_WORDS_WRITE*2, 2);
+		_dma_state |= ST77XX_DMA_IRQ_EVERY;
+	}
+	else
+	{	
+		_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+	}
 	beginSPITransaction();
 	// Doing full window.
 
@@ -4702,18 +4720,15 @@ bool ST7735_t3::updateScreenAsync(bool update_cont)					// call to say update th
 
 	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
 
-	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]. _dmasettings[0];
+	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
 
 	_dma_data[_spi_num]._dmatx.begin(false);
 	_dma_data[_spi_num]._dmatx.enable();
 
 	_dma_frame_count = 0; // Set frame count back to zero.
 	_dmaActiveDisplay[_spi_num] = this;
-	if (update_cont) {
+	if (update_cont)
 		_dma_state |= ST77XX_DMA_CONT;
-	} else {
-		_dma_state &= ~ST77XX_DMA_CONT;
-	}
 
 	_dma_state |= ST77XX_DMA_ACTIVE;
 #ifdef DEBUG_ASYNC_UPDATE
