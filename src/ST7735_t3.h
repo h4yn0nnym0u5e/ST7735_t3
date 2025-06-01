@@ -201,7 +201,7 @@ typedef class ST7735DMA_Data_class {
 
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
-    int frameCount; // number of frames needed for a complete update
+    int frameCount{-1}; // number of frames needed for a complete update
     bool asyncEnded; // this is a bit of a hack - fix later...
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {

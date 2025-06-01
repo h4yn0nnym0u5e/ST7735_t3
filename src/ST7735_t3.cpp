@@ -4064,6 +4064,10 @@ bool ST7735_t3::gfxFontLastCharPosFG(int16_t x, int16_t y) {
 
 
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
+//=============================================================================
+// Frame buffer support. 
+//=============================================================================
+
 void ST7735_t3::dmaInterrupt(void) {
 	if (_dmaActiveDisplay[0])  {
 		_dmaActiveDisplay[0]->process_dma_interrupt();
@@ -4080,10 +4084,7 @@ void ST7735_t3::dmaInterrupt2(void) {
 	}
 }
 
-//=============================================================================
-// Frame buffer support. 
-//=============================================================================
-#ifdef ENABLE_ST77XX_FRAMEBUFFER
+
 #ifdef DEBUG_ASYNC_UPDATE
 extern void dumpDMA_TCD(DMABaseClass *dmabc);
 #endif
@@ -4094,7 +4095,9 @@ void ST7735_t3::process_dma_interrupt(void) {
 #endif
 	// Serial.println(" ST7735_t3::process_dma_interrupt");
 #if defined(__MK66FX1M0__) 
+	//=========================================================
 	// T3.6
+	//=========================================================
 	_dmatx.clearInterrupt();
 
 	#ifdef DEBUG_ASYNC_UPDATE
@@ -4125,44 +4128,64 @@ void ST7735_t3::process_dma_interrupt(void) {
   if (_frame_complete_callback)
     (*_frame_complete_callback)();
 
-#elif defined(__IMXRT1062__)  // Teensy 4.x
-  _dma_data[_spi_num]._dmatx.clearInterrupt();
-  if (_frame_callback_on_HalfDone &&
-      (_dma_data[_spi_num]._dmatx.TCD->SADDR >= _dma_data[_spi_num]._dmasettings[1].TCD->SADDR)) {
-    _dma_sub_frame_count = 1; // set as partial frame.
-    if (_frame_complete_callback)
-      (*_frame_complete_callback)();
-    // Serial.print("-");
-  } else {
+#elif defined(__IMXRT1062__)  
+	//=========================================================
+	// Teensy 4.x
+  	//=========================================================
+	_dma_data[_spi_num]._dmatx.clearInterrupt();
+
+	if (_frame_callback_on_HalfDone &&
+		(_dma_data[_spi_num]._dmatx.TCD->SADDR >= _dma_data[_spi_num]._dmasettings[1].TCD->SADDR)) 
+	{
+		_dma_sub_frame_count = 1; // set as partial frame.
+		if (_frame_complete_callback)
+		(*_frame_complete_callback)();
+		// Serial.print("-");
+	} else {
 
 	// If chained, DMA is currently outputting this frame #,
 	// otherwise this is the frame # we want to start, unless
 	// we've now done enough
 	_dma_frame_count++; 
 
-    if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount() // frame is last one...
-		&& (_dma_state & ST77XX_DMA_CONT) == 0
-		&& _dma_data[_spi_num].isActive()
-		) // not continuous
+	do
 	{
-      	_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
-		_dma_data[_spi_num].asyncEnded = true;
-	}
-	else
-	{
-		if ((_dma_state & ST77XX_DMA_IRQ_EVERY) != 0) // DMA stopped: restart if needed
+		// IRQ-triggered DMA stopped: restart if needed
+		if ((_dma_state & ST77XX_DMA_IRQ_EVERY) != 0) 
 		{
+			// if continuous mode and past last frame, reset frame count
+			if ((_dma_state & ST77XX_DMA_CONT) != 0 
+			 && _dma_frame_count >= _dma_data[_spi_num].getFrameCount())
+				_dma_frame_count = 0;
+
 			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames
 			{
 				// most of the DMA setup is already done - just change stuff and re-enable
 				_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
 				_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
 				_dma_data[_spi_num]._dmatx.enable();
+				break;
 			}
+			else
+				_dma_data[_spi_num].asyncEnded = true;
 		}
-		else // set recently-completed frame ready for next chain
+
+		// chained DMA has interrupted: 
+		if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount() // frame is last one...
+			&& (_dma_state & ST77XX_DMA_CONT) == 0 // ...not continuous - finish after this frame
+			&& _dma_data[_spi_num].isActive()
+			) 
+		{
+			_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
+			_dma_data[_spi_num].asyncEnded = true;
+		}
+		else
+		{
+			// set recently-completed frame ready for next chain
 			_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
-	}
+		}
+	} while (false);
+	
 
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
@@ -4210,8 +4233,9 @@ void ST7735_t3::process_dma_interrupt(void) {
   }
   asm("dsb");
 #else
-	//--------------------------------------------------------------------
-	// T3.5...
+	//=========================================================
+	// T3.5
+	//=========================================================
 	_dmarx.clearInterrupt();
 	_dmatx.clearComplete();
 	_dmarx.clearComplete();
@@ -4270,14 +4294,14 @@ void ST7735_t3::process_dma_interrupt(void) {
 		_dmatx.enable();
 	}
 
-#endif	
+#endif	// Teensy variant
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
 }
 
 //=======================================================================
-// Add optinal support for using frame buffer to speed up complex outputs
+// Add optional support for using frame buffer to speed up complex outputs
 //=======================================================================
 void ST7735_t3::setFrameBuffer(uint16_t *frame_buffer) 
 {
@@ -4495,7 +4519,8 @@ void	ST7735_t3::initDMASettings(void)
 	else _dmatx.attachInterrupt(dmaInterrupt2);
 
 #elif defined(__IMXRT1062__)  // Teensy 4.x
-	_setMaxDMAlines(_height);
+	if (_dma_data[_spi_num].getFrameCount() < 0) // not already set
+		_setMaxDMAlines(_height);
 	// First time we init...
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 
@@ -4921,7 +4946,6 @@ void ST7735_t3::endUpdateAsync() {
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
-	#ifdef ENABLE_ST77XX_FRAMEBUFFER
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
 #endif
@@ -4934,10 +4958,6 @@ void ST7735_t3::waitUpdateAsyncComplete(void)
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, LOW);
 #endif
-	#endif	
 }
-
-#endif
-
 #endif
 

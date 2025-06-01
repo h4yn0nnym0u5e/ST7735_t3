@@ -20,8 +20,9 @@
  * 4 = async frame buffer; do in one DMA request
  * 5 = async frame buffer in PSRAM
  * 6 = async frame buffer, IRQ every chunk
+ * 7 = async frame buffer, IRQ every chunk, continuous
  */
-#define UPDATE_MODE 6
+#define UPDATE_MODE 7
 #define INVERT_DISPLAY false
 #define notMICRO_DEXED
 
@@ -279,6 +280,7 @@ void setup() {
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
   tft.setSPISpeed(40'000'000);
   tft.attachInterrupt(224); // lower the DMA interrupt priority
+  tft.setMaxDMAlines(32);   // e.g. 10 updates of 32 lines each
 #else  
   tft.begin();
   tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
@@ -614,7 +616,9 @@ void loop()
         break;
 
       case 6:
-        Serial.printf("Async start was %sOK\n",tft.updateScreenAsync(false,true)?"":"not ");
+      case 7:
+        Serial.printf("Async start was %sOK\n",
+            tft.updateScreenAsync(7 == UPDATE_MODE,true)?"":"not ");
         asyncTime = 0;
         asyncStarted=true;
         delay(10);
@@ -631,7 +635,8 @@ void loop()
     msecs = 0;
   }
 
-  if (asyncStarted && tft.asyncUpdateActive() && 3 == UPDATE_MODE)
+  if (asyncStarted && tft.asyncUpdateActive() 
+    && (3 == UPDATE_MODE || 7 == UPDATE_MODE))
   {
     elapsedMillis t = 0;
     do
@@ -650,7 +655,8 @@ void loop()
   if (asyncStarted && !tft.asyncUpdateActive())
   {
     asyncStarted = false;
-    if (3 != UPDATE_MODE) // timer makes no sense for continuous update
+    if (3 != UPDATE_MODE // timer makes no sense for continuous update
+     && 7 != UPDATE_MODE)
       Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
     delay(500);
   }
