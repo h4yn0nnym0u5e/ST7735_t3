@@ -21,6 +21,8 @@
 
 #include "Arduino.h"
 #include "DMAChannel.h"
+// #include "core_cm7.h" // in cores, doesn't work, so...
+#define SCB_ICSR_VECTACTIVE_Msk (0x1FFUL)
 #ifdef __cplusplus
 #include <SPI.h>
 #endif
@@ -304,6 +306,8 @@ typedef class ST7735DMA_Data_class {
 
 class ST7735_t3 : public Print
 {
+  // record of display window setting
+  struct {uint16_t x0, y0, x1, y1;} dw;
 
  public:
 
@@ -334,12 +338,17 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     __attribute__((always_inline)) {
+        dw = {x0, y0, x1, y1};
         writecommand(ST7735_CASET); // Column addr set
         writedata16(x0+_xstart);   // XSTART 
         writedata16(x1+_xstart);   // XEND
         writecommand(ST7735_RASET); // Row addr set
         writedata16(y0+_ystart);   // YSTART
         writedata16(y1+_ystart);   // YEND
+  }
+  void getAddr(uint16_t& x0, uint16_t& y0, uint16_t& x1, uint16_t& y1)
+  {
+    x0 = dw.x0; y0 = dw.y0; x1 = dw.x1; y1 = dw.y1;
   }
 
   ////
@@ -668,20 +677,21 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool midTransaction(int x0=-1, uint16_t y0=0, uint16_t x1=0, uint16_t y1=0)
   {
     bool result = false;
+    bool inISR = (SCB_ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
     if (isPastMaxTransaction())
     {
       result = true;
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
-        if (yieldInMidTransaction) yield();
+        if (yieldInMidTransaction && !inISR) yield();
         beginSPITransaction();
       }
       else // caller relies on bounding rectangle being re-set: do extra work
       {
         writecommand_last(ST7735_NOP);
         endSPITransaction();   // ... let other SPI stuff
-        if (yieldInMidTransaction) yield();
+        if (yieldInMidTransaction && !inISR) yield();
         beginSPITransaction(); // have a go
         setAddr((uint16_t) x0, y0, x1, y1);
         writecommand(ST7735_RAMWR);
@@ -754,13 +764,15 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
       // only output when Transfer queue is empty.
       if (!dc_state_change || !_dcpinmask) {
-        while ((_pimxrt_spi->FSR & 0x1f) )  ;
+        while ((_pimxrt_spi->FSR & 0x1f) )  
+          ;
         _pimxrt_spi->TCR = _spi_tcr_current;  // update the TCR
-
       } else {
         waitTransmitComplete();
-        if (requested_tcr_state & LPSPI_TCR_PCS(3)) DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
-        else DIRECT_WRITE_LOW(_dcport, _dcpinmask);
+        if (requested_tcr_state & LPSPI_TCR_PCS(3)) 
+          DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
+        else 
+          DIRECT_WRITE_LOW(_dcport, _dcpinmask);
         _pimxrt_spi->TCR = _spi_tcr_current & ~(LPSPI_TCR_PCS(3) | LPSPI_TCR_CONT); // go ahead and update TCR anyway?  
 
       }
@@ -890,6 +902,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   #elif defined(__IMXRT1062__)  // Teensy 4.x
   uint32_t COUNT_WORDS_WRITE;
+  int getLinesPerChunk(void) {return _width * _height / COUNT_WORDS_WRITE; }
   uint8_t       _cnt_dma_settings;   // how many do we have for this display?
 
   /*

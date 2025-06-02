@@ -280,7 +280,7 @@ void setup() {
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
   tft.setSPISpeed(40'000'000);
   tft.attachInterrupt(224); // lower the DMA interrupt priority
-  tft.setMaxDMAlines(32);   // e.g. 10 updates of 32 lines each
+  tft.setMaxDMAlines(5);   // e.g. 10 updates of 32 lines each
 #else  
   tft.begin();
   tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
@@ -309,7 +309,7 @@ sgtl5000_1.setAddress(HIGH);
       delay(500);
   }
 
-#if defined xST77XX_BLACK
+#if defined ST77XX_BLACK
   //tft.setMaxTransaction(100000);  // deliberately break SD playback!
   tft.setMaxTransaction(2000);      // default is 1000, but this should be OK
   tft.enableYieldInMidTransaction(true); // does a bonus yield() if a mid-transaction break occurs
@@ -635,6 +635,15 @@ void loop()
     msecs = 0;
   }
 
+  /*
+  while (asyncStarted && tft.asyncUpdateActive())
+  {
+    uint16_t x0, y0, x1, y1;
+    tft.getAddr(x0, y0, x1, y1);
+    Serial.printf("%d, %d, %d, %d\n",x0, y0, x1, y1);
+    delay(5);
+  }
+  */
   if (asyncStarted && tft.asyncUpdateActive() 
     && (3 == UPDATE_MODE || 7 == UPDATE_MODE))
   {

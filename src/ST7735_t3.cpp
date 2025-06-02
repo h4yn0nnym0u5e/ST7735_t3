@@ -4160,6 +4160,17 @@ void ST7735_t3::process_dma_interrupt(void) {
 
 			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames
 			{
+				uint16_t x0, y0, x1, y1;
+				getAddr(x0, y0, x1, y1); // current window
+				int linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
+				y0 = y1 + 1 - // advance start by lines already output
+					(_dma_data[_spi_num].getFrameCount() - _dma_frame_count)
+						*linesPerFrame; 
+				//*
+				midTransaction(x0, y0, x1, y1); // mid-transaction break
+				//waitTransmitComplete();
+				maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
+				//*/
 				// most of the DMA setup is already done - just change stuff and re-enable
 				_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
 				_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
