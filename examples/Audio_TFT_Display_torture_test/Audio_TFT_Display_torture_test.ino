@@ -278,9 +278,16 @@ void setup() {
 #if defined ST77XX_BLACK
   tft.init(320, 480);
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
-  tft.setSPISpeed(40'000'000);
   tft.attachInterrupt(224); // lower the DMA interrupt priority
-  tft.setMaxDMAlines(5);   // e.g. 10 updates of 32 lines each
+
+  // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
+  // 40MHz       400ns                                 ~192us
+  /*/
+  tft.setSPISpeed(40'000'000);
+  tft.setMaxDMAlines(5);   //  64 updates of 5 lines each, ~960us
+  /*/
+  tft.setMaxDMAlines(2);   // 160 updates of 2 lines each, ~960us
+  //*/
 #else  
   tft.begin();
   tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
@@ -311,7 +318,7 @@ sgtl5000_1.setAddress(HIGH);
 
 #if defined ST77XX_BLACK
   //tft.setMaxTransaction(100000);  // deliberately break SD playback!
-  tft.setMaxTransaction(2000);      // default is 1000, but this should be OK
+  tft.setMaxTransaction(1400);      // default is 1000, but this should be OK
   tft.enableYieldInMidTransaction(true); // does a bonus yield() if a mid-transaction break occurs
 #endif // defined ST77XX_BLACK
 

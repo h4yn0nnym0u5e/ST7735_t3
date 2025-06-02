@@ -885,6 +885,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool _updateChangedAreasOnly = false; // current default off,
   void (*_frame_complete_callback)() = nullptr;
   bool _frame_callback_on_HalfDone = false;
+  uint8_t ISRpriority = 128;
 
   // Add DMA support. 
   // Note: We have enough memory to have more than one, so could have multiple active devices (one per SPI BUS)
@@ -926,12 +927,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     _cnt_dma_settings = _dma_data[_spi_num].getDMAsettingsCount();
   }
 
-  void _attachInterrupt(int prio = 128)
+  void _attachInterrupt(int prio = -1)
   {
     // probably could use const table of functions...
-    if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt, prio);
-    else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1, prio);
-    else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2, prio);    
+    if (prio > 0)
+      ISRpriority = prio;
+    if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt, ISRpriority);
+    else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1, ISRpriority);
+    else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2, ISRpriority);    
   }
 
   static ST7735DMA_Data _dma_data[3];   // one structure for each SPI buss... 
