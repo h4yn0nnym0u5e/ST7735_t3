@@ -278,7 +278,7 @@ void setup() {
 #if defined ST77XX_BLACK
   tft.init(320, 480);
   tft.setRotation(1);       // Rotates screen to match the baseboard orientation
-  tft.attachInterrupt(224); // lower the DMA interrupt priority
+  tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority
 
   // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
   // 40MHz       400ns                                 ~192us

@@ -535,7 +535,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  updateScreen(void);       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
-  void  attachInterrupt(int prio = 128) { _attachInterrupt(prio); }
+  void  setDMAinterruptPriority(int prio = 128) { _attachInterrupt(prio); }
   void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
@@ -553,7 +553,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  freeFrameBuffer(void) {return;}      // explicit call to release the buffer
   void  updateScreen(void) {return;}       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
-  void  attachInterrupt(int prio = 128) {return;}
+  void  setDMAinterruptPriority(int prio = 128) {return;}
   void  setMaxDMAlines(int lines) { return; }
   void  waitUpdateAsyncComplete(void) {return;}
   void  endUpdateAsync() {return;}      // Turn of the continueous mode fla
