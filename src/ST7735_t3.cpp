@@ -4355,6 +4355,7 @@ uint8_t ST7735_t3::useFrameBuffer(boolean b)		// use the frame buffer?  First ca
 	return _use_fbtft;	
 }
 
+
 void ST7735_t3::freeFrameBuffer(void)						// explicit call to release the buffer
 {
 	if (_we_allocated_buffer) {
@@ -4364,6 +4365,38 @@ void ST7735_t3::freeFrameBuffer(void)						// explicit call to release the buffe
 		_we_allocated_buffer = NULL;
 	}
 }
+
+
+uint8_t ST7735_t3::_useIntermediateBuffer(void*  memptr, 
+										 size_t size, 
+										 bool   weAlloc)
+{
+	if (nullptr == memptr) // failed allocation
+	{
+		size = 0;
+		weAlloc = false;
+	}
+	// set the intermediate buffer values
+	_intbData = (uint16_t*) memptr;
+	_intbSize = size;
+	_intbWeAlloc = weAlloc;
+
+	return nullptr != memptr;
+}
+
+
+void ST7735_t3::freeIntermediateBuffer(void)
+{
+	if (_intbWeAlloc)
+	{
+		free(_intbData);
+		_intbData = nullptr;
+		_intbSize = 0;
+		_intbWeAlloc = false;	
+	}
+}
+
+
 void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 {
 	// Not sure if better here to check flag or check existence of buffer.
@@ -4754,12 +4787,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, //!< continuous updates
 	_pimxrt_spi->DER = LPSPI_DER_TDDE;
 	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
-	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
-
-	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
-
-	_dma_data[_spi_num]._dmatx.begin(false);
-	_dma_data[_spi_num]._dmatx.enable();
+	_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel); // start display update
 
 	_dma_frame_count = 0; // Set frame count back to zero.
 	_dmaActiveDisplay[_spi_num] = this;
@@ -4912,12 +4940,7 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 	_pimxrt_spi->DER = LPSPI_DER_TDDE;
 	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
-	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(_spi_hardware->tx_dma_channel);
-
-	_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]. _dmasettings[0];
-
-	_dma_data[_spi_num]._dmatx.begin(false);
-	_dma_data[_spi_num]._dmatx.enable();
+	_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel); // start display update
 
 	_dma_frame_count = 0; // Set frame count back to zero.
 	_dmaActiveDisplay[_spi_num] = this;

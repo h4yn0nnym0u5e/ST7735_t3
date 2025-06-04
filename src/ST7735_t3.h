@@ -236,7 +236,9 @@ typedef class ST7735DMA_Data_class {
       }
     }
 
-    // Set up to do a single DMA request for the whole screen
+    // Set up to do a single DMA request for anything up 
+    // to the whole screen
+    //
     // Note that due (I think) to the SPI FIFO depth, setting
     // minorBytes > 32 leads to corrupted output
     void setDMAone(int snum, 
@@ -261,6 +263,17 @@ typedef class ST7735DMA_Data_class {
       int addrOff = (snum + nSettings) % frameCount;
       snum %= nSettings;
      _dmasettings[snum].TCD->SADDR = (uint8_t*) fbBase - _dmasettings[snum].TCD->SLAST*addrOff;
+    }
+
+
+    // start copying pixels from frame buffer
+    // to display using DMA
+    void startDMA(uint8_t triggerSource)
+    {
+      _dmatx.triggerAtHardwareEvent(triggerSource);
+      _dmatx = _dmasettings[0];
+      _dmatx.begin(false);
+      _dmatx.enable();    
     }
 
     void endUpdate(void)
@@ -308,6 +321,7 @@ class ST7735_t3 : public Print
 {
   // record of display window setting
   struct {uint16_t x0, y0, x1, y1;} dw;
+  uint8_t _useIntermediateBuffer(void* m, size_t s, bool w=false);  // use the intermediate buffer?  First call will allocate
 
  public:
 
@@ -532,6 +546,13 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  setFrameBuffer(uint16_t *frame_buffer);
   uint8_t useFrameBuffer(boolean b);    // use the frame buffer?  First call will allocate
   void  freeFrameBuffer(void);      // explicit call to release the buffer
+  
+  // to do partial screen updates asynchronously, we need
+  // an intermediate buffer
+  uint8_t useIntermediateBuffer(size_t s) { return _useIntermediateBuffer(malloc(s),s,true);}
+  uint8_t useIntermediateBuffer(void* m, size_t s) { return _useIntermediateBuffer(m,s,false);}
+  void  freeIntermediateBuffer(void);      // explicit call to release the buffer
+  
   void  updateScreen(void);       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
@@ -886,6 +907,11 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void (*_frame_complete_callback)() = nullptr;
   bool _frame_callback_on_HalfDone = false;
   uint8_t ISRpriority = 128;
+
+  // intermediate buffer for partial frame updates:
+  uint16_t* _intbData = nullptr;  // where the pixel data will be stored
+  size_t _intbSize = 0;           // how much space there is
+  bool _intbWeAlloc = false;      // true if we allocated it
 
   // Add DMA support. 
   // Note: We have enough memory to have more than one, so could have multiple active devices (one per SPI BUS)
