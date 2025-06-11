@@ -307,7 +307,7 @@ void setup() {
   tft.freeFrameBuffer();
   
   AudioMemory(10);
-sgtl5000_1.setAddress(HIGH);
+// sgtl5000_1.setAddress(HIGH);
   sgtl5000_1.enable();
   sgtl5000_1.volume(0.3);
   while (!(SD.begin(SDCARD_CS_PIN))) 
@@ -636,10 +636,12 @@ void loop()
         Serial.printf("Async start was %sOK\n",tft.updateScreenAsyncT4()?"":"not ");
         asyncTime = 0;
         asyncStarted=true;
+        msecs = 999999;
         break;
 #endif // defined ST77XX_BLACK
     }
-    msecs = 0;
+    if (msecs != 999999)
+      msecs = 0;
   }
 
   /*
@@ -678,10 +680,10 @@ void loop()
   }
 
 #if defined ST77XX_BLACK
-  if (asyncStarted && msecs > 250)
+  if (asyncStarted && msecs > 50)
   {
     msecs = 0;
-    Serial.printf("Frames: %d\n", tft.getFrameCount(0));
+    Serial.printf("Frames: %d; state %02X\n", tft.getFrameCount(0), tft._dma_state);
   }
 #endif // defined ST77XX_BLACK
 

@@ -184,6 +184,7 @@ typedef struct {
 // as to move it out of the memory that is cached...
 typedef class ST7735DMA_Data_class {
     static constexpr int nSettings = 3;
+    uint32_t rowsPerUpdate;
     void sourceBuffer(DMASetting& sb, //!< settings to use
                       volatile const unsigned short p[],  //!< source of data
                       unsigned int len, //!< length of data (bytes)
@@ -257,6 +258,74 @@ typedef class ST7735DMA_Data_class {
       asyncEnded = false;
     }
 
+    bool settingsOK(int snum)
+    {
+      return _dmasettings[snum].TCD->NBYTES > 0;
+    }
+
+    /**
+     * Set up to do a memory-to-memory copy using DMA.
+     * 
+     * This is intended to copy a part of a full-screen frame buffer
+     * to a sequential intermediate buffer; the display is then set
+     * to update only the selected area, and the intermediate buffer
+     * can then be streamed straight to it. 
+     * 
+     * The TCD setup only does the memory-to-memory copy and then stops;
+     * it can be modified to chain to a memory-to_SPI DMA transfer without
+     * further CPU intervention.
+     */
+    void setDMAmem2mem(int snum,              //!< which _dmasettings entry to use
+                       uint16_t* _pfbtft,     //!< first word in source (frame buffer)
+                       uint32_t bytesPerRow,  //!< bytes per source row to copy
+                       uint32_t rows,         //!< rows to copy
+                       uint32_t rowBytes,     //!< total bytes in one source row
+                       uint16_t* _intb)       //!< intermediate buffer
+    {
+      DMASetting& sb = _dmasettings[snum];
+      uint8_t channel = _dmatx.channel;
+
+      rowsPerUpdate = rows; // save for later query
+
+      // set up source: interleaved rows from "frame buffer"
+      sb.TCD->SADDR = _pfbtft;
+      sb.TCD->SOFF  = 2; // increment by 2 after each read
+      sb.TCD->ATTR_SRC = 1; // reads are 2 bytes
+      sb.TCD->NBYTES = DMA_TCD_NBYTES_SMLOE // SADDR offset added after minor loop
+                    | DMA_TCD_NBYTES_MLOFFYES_MLOFF(rowBytes - bytesPerRow) // amount to add
+                    | DMA_TCD_NBYTES_MLOFFYES_NBYTES(bytesPerRow); // minor loop copy amount (<1024)
+      sb.TCD->SLAST = -((rows-1)*rowBytes + bytesPerRow); // back to source start
+      
+      // link back to self after minor loop, 
+      // so major loops get executed
+      rows = DMA_TCD_BITER_ELINK 
+          | DMA_TCD_BITER_ELINKYES_LINKCH(channel) // because of this, the row count is...
+          | DMA_TCD_BITER_ELINKYES_BITER(rows);    // ...limited to 511 rather than 32767
+      sb.TCD->BITER = rows;
+      sb.TCD->CITER = rows;
+
+      // set up destination: linear memory
+      sb.TCD->DADDR = _intb;
+      sb.TCD->DOFF  = 2;    // increment by 2 after each write
+      sb.TCD->ATTR_DST = 1; // writes are 2 bytes
+      sb.TCD->DLASTSGA = 0; // no destination address adjustment at end
+
+      // overall setup stuff: no interrupts, just stop
+      sb.TCD->CSR &= ~(DMA_TCD_CSR_INTMAJOR | DMA_TCD_CSR_INTHALF);
+      sb.disableOnCompletion();
+    }
+
+    uint32_t getRows(void) { return rowsPerUpdate; }
+
+    void chainDMA(int s1, int s2)
+    {
+      DMASetting& sb = _dmasettings[s1];
+
+      sb.replaceSettingsOnCompletion(_dmasettings[s2]);     
+      sb.interruptAtCompletion();   
+    }
+
+
     void setDMAnext(int snum)
     {
       // SLAST is negative, so subtract chunk size * number of chunk settings
@@ -267,11 +336,16 @@ typedef class ST7735DMA_Data_class {
 
 
     // start copying pixels from frame buffer
-    // to display using DMA
+    // to display using DMA; OR use a chained
+    // mem2mem -> mem2SPI setup
     void startDMA(uint8_t triggerSource)
     {
-      _dmatx.triggerAtHardwareEvent(triggerSource);
       _dmatx = _dmasettings[0];
+#define DMAMUX_SOURCE_MANUAL 255 // special for manual trigger
+      if (DMAMUX_SOURCE_MANUAL == triggerSource)
+        _dmatx.triggerManual();
+      else
+        _dmatx.triggerAtHardwareEvent(triggerSource);
       _dmatx.begin(false);
       _dmatx.enable();    
     }
@@ -535,12 +609,13 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
 // Frame buffer support
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
-  enum {ST77XX_DMA_INIT=0x01, 
-        ST77XX_DMA_EVER_INIT = 0x08,
-        ST77XX_DMA_CONT=0x02, 
-        ST77XX_DMA_FINISH=0x04,
-        ST77XX_DMA_IRQ_EVERY=0x10,
-        ST77XX_DMA_ACTIVE=0x80};
+  enum {ST77XX_DMA_INIT      = 0x01, // DMA settings are initialised
+        ST77XX_DMA_CONT      = 0x02, // continuous updates
+        ST77XX_DMA_ONE_FRAME = 0x04, // DMA has finished after one frame
+        // ST77XX_DMA_EVER_INIT = 0x08,
+        ST77XX_DMA_IRQ_EVERY = 0x10, // interrupt every DMA frame
+        ST77XX_DMA_USE_CLIP  = 0x20, // use clipping rectangle, not full screen
+        ST77XX_DMA_ACTIVE    = 0x80}; // is active
 
   // added support to use optional Frame buffer
   void  setFrameBuffer(uint16_t *frame_buffer);
@@ -554,7 +629,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  freeIntermediateBuffer(void);      // explicit call to release the buffer
   
   void  updateScreen(void);       // call to say update the screen now. 
-  bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false);  // call to say update the screen; optionally turn into continuous mode. 
+  bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
   void  setDMAinterruptPriority(int prio = 128) { _attachInterrupt(prio); }
   void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
@@ -595,7 +670,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   }
 
 
- protected:
+ //protected:
   uint8_t  tabcolor;
 
   void     spiwrite(uint8_t),
@@ -928,7 +1003,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t      _cnt_dma_settings;   // how many do we need for this display?
 
   #elif defined(__IMXRT1062__)  // Teensy 4.x
-  uint32_t COUNT_WORDS_WRITE;
+  uint32_t COUNT_WORDS_WRITE; // words to write when we're updating the whole screen
   int getLinesPerChunk(void) {return _width * _height / COUNT_WORDS_WRITE; }
   uint8_t       _cnt_dma_settings;   // how many do we have for this display?
 

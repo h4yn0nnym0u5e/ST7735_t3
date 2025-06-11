@@ -4158,23 +4158,43 @@ void ST7735_t3::process_dma_interrupt(void) {
 			 && _dma_frame_count >= _dma_data[_spi_num].getFrameCount())
 				_dma_frame_count = 0;
 
-			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames
+			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames 
 			{
+				uint8_t trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
 				uint16_t x0, y0, x1, y1;
 				getAddr(x0, y0, x1, y1); // current window
-				int linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
+				int linesPerFrame;
+
+				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
+					linesPerFrame = _dma_data[_spi_num].getRows();
+				else					
+					linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
 				y0 = y1 + 1 - // advance start by lines already output
 					(_dma_data[_spi_num].getFrameCount() - _dma_frame_count)
 						*linesPerFrame; 
-				//*
+				
 				midTransaction(x0, y0, x1, y1); // mid-transaction break
-				//waitTransmitComplete();
 				maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
-				//*/
+
 				// most of the DMA setup is already done - just change stuff and re-enable
-				_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
-				_dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
-				_dma_data[_spi_num]._dmatx.enable();
+				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
+				{
+					uint32_t bytesPerLine = (x1 - x0 + 1)*2;
+					_dma_data[_spi_num].setDMAmem2mem(0, 
+						_pfbtft + y0*_width + x1,
+						bytesPerLine, linesPerFrame, _width*2, _intbData
+					   );
+					_dma_data[_spi_num].setDMAone(1, _intbData, linesPerFrame*bytesPerLine, 2);
+					_dma_data[_spi_num].chainDMA(0, 1);
+					trigSrc = DMAMUX_SOURCE_MANUAL;
+				}
+				else
+				{
+					_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
+					// _dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
+					// _dma_data[_spi_num]._dmatx.enable();
+				}
+				_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
 				break;
 			}
 			else
@@ -4188,6 +4208,10 @@ void ST7735_t3::process_dma_interrupt(void) {
 			) 
 		{
 			_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
+			_dma_data[_spi_num].asyncEnded = true;
+		}
+		else if ((_dma_state & ST77XX_DMA_ONE_FRAME) != 0)
+		{
 			_dma_data[_spi_num].asyncEnded = true;
 		}
 		else
@@ -4330,7 +4354,7 @@ void ST7735_t3::setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone) {
 
   noInterrupts();
   _dma_state &=
-      ~ST77XX_DMA_INIT; // Lets setup  the call backs on next call out
+      ~ST77XX_DMA_INIT; // Let's set up the callbacks on next call out
   interrupts();
 }
 
@@ -4642,7 +4666,6 @@ void	ST7735_t3::initDMASettings(void)
 #endif
 	_dma_state = ST77XX_DMA_INIT;  // Should be first thing set!
 	// Serial.println("DMA initDMASettings - end");
-
 }
 #endif
 
@@ -4671,8 +4694,9 @@ void ST7735_t3::dumpDMASettings() {
 }
 
 // call to say update the screen now.
-bool ST7735_t3::updateScreenAsync(bool update_cont, //!< continuous updates
-								  bool interrupt_every)	//!< interrupt after every DMA: no chaining of settings on completion
+bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
+								  bool interrupt_every,	//!< interrupt after every DMA: no chaining of settings on completion
+								  bool use_clip_rect)	//!< only update clip rectangle
 {
 	// Not sure if better here to check flag or check existence of buffer.
 	// Will go by buffer as maybe can do interesting things?
@@ -4763,20 +4787,58 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, //!< continuous updates
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_IRQ_EVERY);
+	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
+	uint8_t snum = 0, trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
+
 	if (interrupt_every)
 	{
-		_dma_data[_spi_num].setDMAone(0,_pfbtft, COUNT_WORDS_WRITE*2, 2);
+		uint32_t bytesToWrite = COUNT_WORDS_WRITE*2;
+		uint16_t* psrc = _pfbtft;
+		// see if we want to and can use intermediate buffer
+		if (use_clip_rect && nullptr != _intbData)
+		{
+			_dma_state |= ST77XX_DMA_USE_CLIP;
+			snum = 1;
+			psrc = _intbData;
+			trigSrc = DMAMUX_SOURCE_MANUAL;
+
+			// set up first mem2mem copy
+			uint32_t rows = _displayclipy2 - _displayclipy1; // number of rows to output
+			uint32_t rowBytes = (_displayclipx2 - _displayclipx1)*2;
+			uint32_t areaMem = rows * rowBytes;
+			if (areaMem > _intbSize) // can't do it all in one go...
+			{
+				int goes = areaMem / _intbSize + 1; // ...need this many
+				rows /= goes;
+				bytesToWrite = rows * rowBytes;
+			}
+			_dma_data[_spi_num].setDMAmem2mem(0, 
+						  _pfbtft + _displayclipy1*_width + _displayclipx1,
+						  rowBytes, rows, _width*2, _intbData
+						 );
+			_dma_data[_spi_num].chainDMA(0, 1);
+		}
+
+		_dma_data[_spi_num].setDMAone(snum, psrc, bytesToWrite, 2);
 		_dma_state |= ST77XX_DMA_IRQ_EVERY;
 	}
 	else
 	{	
+		// whole screen - ignore request to use clip rectangle
 		_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
 	}
-	beginSPITransaction();
-	// Doing full window.
 
-	setAddr(0, 0, _width - 1, _height - 1);
+	// check that DMA settings make sense - This Never Fails :)
+	if (!_dma_data[_spi_num].settingsOK(snum))
+		return false;
+
+	beginSPITransaction();
+	
+	// tell display how much of it we're updating
+	if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
+		setAddr(_displayclipx1, _displayclipy1, _displayclipx2 - 1, _displayclipy2 - 1);
+	else
+		setAddr(0, 0, _width - 1, _height - 1); // Doing full window.
 	writecommand_last(ST7735_RAMWR);
 
 	// Update TCR to 16 bit mode. and output the first entry.
@@ -4787,7 +4849,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, //!< continuous updates
 	_pimxrt_spi->DER = LPSPI_DER_TDDE;
 	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
-	_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel); // start display update
+	_dma_data[_spi_num].startDMA(trigSrc); // start display update
 
 	_dma_frame_count = 0; // Set frame count back to zero.
 	_dmaActiveDisplay[_spi_num] = this;
@@ -4950,7 +5012,7 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 		_dma_state &= ~ST77XX_DMA_CONT;
 	}
 
-	_dma_state |= ST77XX_DMA_ACTIVE;
+	_dma_state |= ST77XX_DMA_ACTIVE | ST77XX_DMA_ONE_FRAME;
 
 #endif	// defined(__IMXRT1062__)
 #ifdef DEBUG_ASYNC_LEDS
