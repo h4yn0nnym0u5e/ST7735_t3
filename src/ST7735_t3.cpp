@@ -4144,8 +4144,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 	} else {
 
 	// If chained, DMA is currently outputting this frame #,
-	// otherwise this is the frame # we want to start, unless
-	// we've now done enough
+	// otherwise this is the frame # we want to start, 
+	// unless we've now done enough
 	_dma_frame_count++; 
 
 	do
@@ -4158,35 +4158,43 @@ void ST7735_t3::process_dma_interrupt(void) {
 			 && _dma_frame_count >= _dma_data[_spi_num].getFrameCount())
 				_dma_frame_count = 0;
 
-			if (_dma_frame_count < _dma_data[_spi_num].getFrameCount()) // not done all frames 
+			if ( _dma_frame_count < _dma_data[_spi_num].getFrameCount() // not done all frames 
+			 || (_dma_state & ST77XX_DMA_USE_CLIP) != 0) // or using clipping rectangle (self-terminating)
 			{
-				uint8_t trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
 				uint16_t x0, y0, x1, y1;
 				getAddr(x0, y0, x1, y1); // current window
-				int linesPerFrame;
 
+				// figure out the new window height
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
-					linesPerFrame = _dma_data[_spi_num].getRows();
-				else					
-					linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
-				y0 = y1 + 1 - // advance start by lines already output
-					(_dma_data[_spi_num].getFrameCount() - _dma_frame_count)
-						*linesPerFrame; 
-				
-				midTransaction(x0, y0, x1, y1); // mid-transaction break
-				maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
+				{					
+					y0 = y1 + 1 - _dma_data[_spi_num].getRemainingRows();
+				}
+				else
+				{					
+					int linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
+					y0 = y1 + 1 - // advance start by lines already output
+						(_dma_data[_spi_num].getFrameCount() - _dma_frame_count)
+							*linesPerFrame; 
+				}
 
+				if (y1 - y0 + 1 > 0) // non-zero height remaining
+				{
+					midTransaction(x0, y0, x1, y1); // mid-transaction break
+					maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
+				}
+				
 				// most of the DMA setup is already done - just change stuff and re-enable
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{
-					uint32_t bytesPerLine = (x1 - x0 + 1)*2;
-					_dma_data[_spi_num].setDMAmem2mem(0, 
-						_pfbtft + y0*_width + x1,
-						bytesPerLine, linesPerFrame, _width*2, _intbData
-					   );
-					_dma_data[_spi_num].setDMAone(1, _intbData, linesPerFrame*bytesPerLine, 2);
-					_dma_data[_spi_num].chainDMA(0, 1);
-					trigSrc = DMAMUX_SOURCE_MANUAL;
+					uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
+					if (bytesToOutput > 0) // more to output - do rest of preparation
+					{
+						_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
+						_dma_data[_spi_num].chainDMA(0, 1);
+						_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
+					}
+					else
+						_dma_data[_spi_num].asyncEnded = true; // finished
 				}
 				else
 				{
@@ -4812,11 +4820,13 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 				rows /= goes;
 				bytesToWrite = rows * rowBytes;
 			}
+			// Use _dmasettings[0] to do memory-to-memory copy
 			_dma_data[_spi_num].setDMAmem2mem(0, 
 						  _pfbtft + _displayclipy1*_width + _displayclipx1,
-						  rowBytes, rows, _width*2, _intbData
+						  rowBytes, rows, _width*2, _intbData,
+						  _displayclipy2 - _displayclipy1
 						 );
-			_dma_data[_spi_num].chainDMA(0, 1);
+			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
 		}
 
 		_dma_data[_spi_num].setDMAone(snum, psrc, bytesToWrite, 2);

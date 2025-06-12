@@ -21,8 +21,9 @@
  * 5 = async frame buffer in PSRAM
  * 6 = async frame buffer, IRQ every chunk
  * 7 = async frame buffer, IRQ every chunk, continuous
+ * 8 = async frame buffer, clipped
  */
-#define UPDATE_MODE 7
+#define UPDATE_MODE 8
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -92,7 +93,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   #define LED_PWM  4 // used to set brightness of LED backlight
   #define ROTATE   1
   #define INVERT_DISPLAY false
-  #endif // defined(MICRO_DEXED)
+#endif // defined(MICRO_DEXED)
 
 #if defined(MINI_PLATFORM)
 // https://protosupplies.com/product/mini-platform-teensy41/
@@ -351,6 +352,15 @@ void setup() {
       tft.useFrameBuffer(true);
       break;
 
+    case 8:      
+      {
+        // two-line intermediate buffer, 
+        // i.e. 960 pixels or 30 pixel square
+        tft.useIntermediateBuffer(tft.width() * 2 * 2); 
+        tft.useFrameBuffer(true);
+      }
+      break;
+
     case 0:
       break;
   }
@@ -576,6 +586,30 @@ uint32_t check_updateScreen(void)
   tft.updateScreen();
   return checkMicros;
 }
+//------------------------------------------------------------------------
+int whichBox;
+uint32_t check_updateClip(void)
+{  
+  switch (whichBox)
+  {
+    default:
+      whichBox = -1; // finish
+      break;
+
+    case 0:
+      tft.setClipRect(40,40,80,80);
+      break;
+
+    case 1:
+      tft.setClipRect(60,200,200,40);
+      break;
+  }
+
+  if (whichBox >= 0)
+    tft.updateScreenAsync(false,false,true);
+  whichBox++;
+  return whichBox-1;
+}
 
 //========================================================================
 #define RUN_CHECK(n) Serial.printf("Check " #n ": %d\n", check_##n())
@@ -616,6 +650,8 @@ void loop()
     RUN_CHECK(writeRect1BPP);
     RUN_CHECK(writeRect2BPP);
     RUN_CHECK(writeRect4BPP);
+
+    whichBox = 0; // re-start clipped boxes in update mode 8
     
     switch (UPDATE_MODE)
     {
@@ -643,6 +679,12 @@ void loop()
         asyncStarted=true;
         delay(10);
         break;
+
+      case 8:
+        RUN_CHECK(updateClip);
+        asyncStarted=true;
+        break;
+          
 
 #if  defined ST77XX_BLACK
       case 4:
@@ -681,6 +723,15 @@ void loop()
     tft.endUpdateAsync();
     tft.waitUpdateAsyncComplete();
     Serial.printf("Took %dms to stop async update\n", (int) t);
+  }
+
+  // start another clipped area updating?
+  if (asyncStarted && !tft.asyncUpdateActive() 
+    && (8 == UPDATE_MODE))
+  {
+    RUN_CHECK(updateClip);  // do next area
+    if (0 == whichBox)      // there isn't one...
+      asyncStarted = false; // ...so stop
   }
 
   if (asyncStarted && !tft.asyncUpdateActive())

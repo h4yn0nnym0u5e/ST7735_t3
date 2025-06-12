@@ -184,7 +184,6 @@ typedef struct {
 // as to move it out of the memory that is cached...
 typedef class ST7735DMA_Data_class {
     static constexpr int nSettings = 3;
-    uint32_t rowsPerUpdate;
     void sourceBuffer(DMASetting& sb, //!< settings to use
                       volatile const unsigned short p[],  //!< source of data
                       unsigned int len, //!< length of data (bytes)
@@ -205,7 +204,10 @@ typedef class ST7735DMA_Data_class {
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
     int frameCount{-1}; // number of frames needed for a complete update
+    uint32_t totalRows; // total rows (left) to do in async update
     bool asyncEnded; // this is a bit of a hack - fix later...
+
+
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
       //_dmasettings[snum].sourceBuffer(_pfbtft, byteCount);
@@ -280,12 +282,13 @@ typedef class ST7735DMA_Data_class {
                        uint32_t bytesPerRow,  //!< bytes per source row to copy
                        uint32_t rows,         //!< rows to copy
                        uint32_t rowBytes,     //!< total bytes in one source row
-                       uint16_t* _intb)       //!< intermediate buffer
+                       uint16_t* _intb,       //!< intermediate buffer
+                       uint32_t tRows)        //!< total rows we want to output
     {
       DMASetting& sb = _dmasettings[snum];
       uint8_t channel = _dmatx.channel;
 
-      rowsPerUpdate = rows; // save for later query
+      totalRows = tRows - rows; // record rows remaining to do after this update
 
       // set up source: interleaved rows from "frame buffer"
       sb.TCD->SADDR = _pfbtft;
@@ -294,7 +297,7 @@ typedef class ST7735DMA_Data_class {
       sb.TCD->NBYTES = DMA_TCD_NBYTES_SMLOE // SADDR offset added after minor loop
                     | DMA_TCD_NBYTES_MLOFFYES_MLOFF(rowBytes - bytesPerRow) // amount to add
                     | DMA_TCD_NBYTES_MLOFFYES_NBYTES(bytesPerRow); // minor loop copy amount (<1024)
-      sb.TCD->SLAST = -((rows-1)*rowBytes + bytesPerRow); // back to source start
+      sb.TCD->SLAST = rowBytes; // academic in hardware, useful for next block
       
       // link back to self after minor loop, 
       // so major loops get executed
@@ -315,7 +318,37 @@ typedef class ST7735DMA_Data_class {
       sb.disableOnCompletion();
     }
 
-    uint32_t getRows(void) { return rowsPerUpdate; }
+    /**
+     * Set up to do next framebuffer->intermediate DMA copy.
+     *
+     * Assumes the DMAsetting has already been set up, and thus
+     * contains all the required information to copy the next
+     * partial area. 
+     * 
+     * \return number of bytes to be copied
+     */
+    uint32_t setDMAmemNext(int snum)
+    {
+      DMASetting& sb = _dmasettings[snum];
+
+      uint32_t rows = sb.TCD->BITER;
+      uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
+      if (totalRows > 0) // we have something left to output
+      {
+        uint32_t rowBytes = sb.TCD->SLAST; // bytes per screen row
+        uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + bytesPerRow*rows); // next FB address
+
+        if (rows > totalRows) // might be the last copy, and thus smaller
+          rows = totalRows;
+
+        setDMAmem2mem(snum, newStart, bytesPerRow, rows, rowBytes, (uint16_t*) sb.TCD->DADDR, totalRows);
+      }
+      else 
+        rows = 0; // nothing more to do
+
+      return rows * bytesPerRow; // return number of bytes to be copied / output
+    }
+
 
     void chainDMA(int s1, int s2)
     {
@@ -364,6 +397,7 @@ typedef class ST7735DMA_Data_class {
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
     void setFrameCount(int fc) { frameCount = fc; }
     int  getFrameCount(void)   { return frameCount; }
+    int  getRemainingRows(void)   { return totalRows; }
     int8_t getDMAsettingsCount(void) { return nSettings; }
 } ST7735DMA_Data;
 #endif
