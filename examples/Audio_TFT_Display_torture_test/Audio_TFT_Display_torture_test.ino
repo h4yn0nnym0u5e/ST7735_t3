@@ -23,7 +23,6 @@
  * 7 = async frame buffer, IRQ every chunk, continuous
  */
 #define UPDATE_MODE 7
-#define INVERT_DISPLAY false
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -82,7 +81,6 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 
   #define LED_PWM 255 // used to set brightness of LED backlight
   #define ROTATE 3
-  #undef INVERT_DISPLAY
   #define INVERT_DISPLAY true
 #else
   // Use these with the Teensy 4.x and Audio Shield Rev D or D2
@@ -92,10 +90,12 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   #define TFT_RST    255  // 255 = unused, connect to 3.3V
 
   #define LED_PWM  4 // used to set brightness of LED backlight
-  #define ROTATE 1
-#endif // defined(MICRO_DEXED)
+  #define ROTATE   1
+  #define INVERT_DISPLAY false
+  #endif // defined(MICRO_DEXED)
 
 #if defined(MINI_PLATFORM)
+// https://protosupplies.com/product/mini-platform-teensy41/
   #undef TFT_CS
   #undef LED_PWM
   #undef ROTATE
@@ -103,6 +103,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   #define TFT_CS    10
   #define ROTATE     3
   #define LED_PWM  255
+  #define INVERT_DISPLAY true
 #endif // defined(MINI_PLATFORM)
 
 
