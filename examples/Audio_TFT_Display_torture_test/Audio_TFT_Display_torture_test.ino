@@ -25,6 +25,8 @@
 #define UPDATE_MODE 7
 #define INVERT_DISPLAY false
 #define notMICRO_DEXED
+#define notMINI_PLATFORM
+
 
 //------------------------------------------------------------
 
@@ -87,12 +89,22 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   // these are h4yn0nnymou5e pin assignments - you may need to change them
   #define TFT_DC       9
   #define TFT_CS      22
-  //#define TFT_CS      10
   #define TFT_RST    255  // 255 = unused, connect to 3.3V
 
   #define LED_PWM  4 // used to set brightness of LED backlight
   #define ROTATE 1
 #endif // defined(MICRO_DEXED)
+
+#if defined(MINI_PLATFORM)
+  #undef TFT_CS
+  #undef LED_PWM
+  #undef ROTATE
+
+  #define TFT_CS    10
+  #define ROTATE     3
+  #define LED_PWM  255
+#endif // defined(MINI_PLATFORM)
+
 
 
 #if defined ST77XX_BLACK
@@ -277,7 +289,7 @@ void setup() {
     // Setup the LCD screen
 #if defined ST77XX_BLACK
   tft.init(320, 480);
-  tft.setRotation(1);       // Rotates screen to match the baseboard orientation
+  tft.setRotation(ROTATE);         // Rotates screen to match the baseboard orientation
   tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority
 
   // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
