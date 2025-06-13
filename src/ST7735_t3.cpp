@@ -24,7 +24,7 @@
 #include <SPI.h>
 
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
-//#define DEBUG_ASYNC_UPDATE
+#define DEBUG_ASYNC_UPDATE
 //#define DEBUG_ASYNC_LEDS
 #ifdef DEBUG_ASYNC_LEDS
   #define DEBUG_PIN_1 0
@@ -4182,7 +4182,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 					midTransaction(x0, y0, x1, y1); // mid-transaction break
 					maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
 				}
-				
+
 				// most of the DMA setup is already done - just change stuff and re-enable
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{
@@ -4191,10 +4191,16 @@ void ST7735_t3::process_dma_interrupt(void) {
 					{
 						_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
 						_dma_data[_spi_num].chainDMA(0, 1);
-						_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
+#ifdef DEBUG_ASYNC_UPDATE
+	dumpDMASettings();
+#endif
+					  _dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
 					}
 					else
+					{
+						_dma_data[_spi_num]._dmatx.disable();
 						_dma_data[_spi_num].asyncEnded = true; // finished
+					}
 				}
 				else
 				{
@@ -4815,16 +4821,13 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 			uint32_t rowBytes = (_displayclipx2 - _displayclipx1)*2;
 			uint32_t areaMem = rows * rowBytes;
 			if (areaMem > _intbSize) // can't do it all in one go...
-			{
-				int goes = areaMem / _intbSize + 1; // ...need this many
-				rows /= goes;
-				bytesToWrite = rows * rowBytes;
-			}
+				rows = _intbSize / rowBytes; // ...do this many per frame
+			bytesToWrite = rows * rowBytes;
 			// Use _dmasettings[0] to do memory-to-memory copy
 			_dma_data[_spi_num].setDMAmem2mem(0, 
 						  _pfbtft + _displayclipy1*_width + _displayclipx1,
 						  rowBytes, rows, _width*2, _intbData,
-						  _displayclipy2 - _displayclipy1
+						  _displayclipy2 - _displayclipy1 
 						 );
 			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
 		}

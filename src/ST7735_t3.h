@@ -331,12 +331,12 @@ typedef class ST7735DMA_Data_class {
     {
       DMASetting& sb = _dmasettings[snum];
 
-      uint32_t rows = sb.TCD->BITER;
+      uint32_t rows = DMA_TCD_BITER_ELINKYES_BITER(sb.TCD->BITER);
       uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
       if (totalRows > 0) // we have something left to output
       {
         uint32_t rowBytes = sb.TCD->SLAST; // bytes per screen row
-        uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + bytesPerRow*rows); // next FB address
+        uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + rowBytes*rows); // next FB address
 
         if (rows > totalRows) // might be the last copy, and thus smaller
           rows = totalRows;
@@ -350,12 +350,16 @@ typedef class ST7735DMA_Data_class {
     }
 
 
+    /*
+     * Chain two sets of DMA settings together,
+     * interrupting once the second transaction 
+     * is complete.
+     */
     void chainDMA(int s1, int s2)
     {
-      DMASetting& sb = _dmasettings[s1];
-
-      sb.replaceSettingsOnCompletion(_dmasettings[s2]);     
-      sb.interruptAtCompletion();   
+      _dmasettings[s1].replaceSettingsOnCompletion(_dmasettings[s2]);
+      _dmasettings[s1].TCD->CSR &= ~DMA_TCD_CSR_DREQ;
+      _dmasettings[s2].interruptAtCompletion();   
     }
 
 
@@ -391,7 +395,7 @@ typedef class ST7735DMA_Data_class {
 
     bool isActive(void)
     {
-      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) || !asyncEnded;
+      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) && !asyncEnded;
     }
 
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }

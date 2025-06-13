@@ -71,6 +71,7 @@ AudioConnection          patchCord4(playSdWav1, 1, peak2, 0);
 AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
+#include <TeensyDebug.h>
 
 #if defined(MICRO_DEXED)
   #define TFT_DC      37
@@ -100,6 +101,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   #undef TFT_CS
   #undef LED_PWM
   #undef ROTATE
+  #undef INVERT_DISPLAY
 
   #define TFT_CS    10
   #define ROTATE     3
@@ -279,6 +281,15 @@ void makeSave(uint16_t* sv, int n)
   //delay(500);
 }
 
+void fillGrid(void)
+{
+  for (int i=0;i<tft.width();i+=32)
+    tft.drawLine(i,0,i,tft.height()-1,ST77XX_WHITE);
+  for (int i=0;i<tft.height();i+=32)
+    tft.drawLine(0,i,tft.width()-1,i,ST77XX_WHITE);
+  tft.drawRect(0,0,tft.width(),tft.height(),ST77XX_WHITE);
+}
+
 //=================================================================================
 void setup() {
   pinMode(LED_PWM, OUTPUT);
@@ -313,6 +324,12 @@ void setup() {
   tft.setTextWrap(false);
 
   tft.fillScreen(ST7735_BLACK);
+  fillGrid();
+
+#if defined(TEENSY_DEBUG_H)
+  halt_cpu();
+ #endif // defined(TEENSY_DEBUG_H)
+  
 
   tft.useFrameBuffer(true);
   makeSave(&save1[0],0);
@@ -354,16 +371,19 @@ void setup() {
 
     case 8:      
       {
-        // two-line intermediate buffer, 
-        // i.e. 960 pixels or 30 pixel square
-        tft.useIntermediateBuffer(tft.width() * 2 * 2); 
+        // two-line (480x2) intermediate buffer, 
+        // i.e. 960 pixels, or 30x32 pixels, etc.
+        tft.useIntermediateBuffer(tft.width() * 2 * 2);
         tft.useFrameBuffer(true);
+        Serial.printf("Frame buffer: %08X; intermediate buffer: %08X (%d)\n",
+                       tft._pfbtft, tft._intbData, tft._intbSize);
       }
       break;
 
     case 0:
       break;
   }
+  fillGrid();
   
   delay(100);
 }
@@ -590,6 +610,7 @@ uint32_t check_updateScreen(void)
 int whichBox;
 uint32_t check_updateClip(void)
 {  
+  checkMicros = 0;
   switch (whichBox)
   {
     default:
@@ -606,7 +627,7 @@ uint32_t check_updateClip(void)
   }
 
   if (whichBox >= 0)
-    tft.updateScreenAsync(false,false,true);
+    tft.updateScreenAsync(false,true,true);
   whichBox++;
   return whichBox-1;
 }
@@ -682,7 +703,9 @@ void loop()
 
       case 8:
         RUN_CHECK(updateClip);
-        asyncStarted=true;
+        asyncStarted = true;
+        asyncTime = 0;
+        msecs = 999999;
         break;
           
 
@@ -708,47 +731,62 @@ void loop()
     delay(5);
   }
   */
-  if (asyncStarted && tft.asyncUpdateActive() 
-    && (3 == UPDATE_MODE || 7 == UPDATE_MODE))
+  if (asyncStarted)
   {
-    elapsedMillis t = 0;
-    do
+    if (tft.asyncUpdateActive())
     {
-      delay(25);
-      RUN_CHECK(fillRect);
-      delay(25);
-    } while (t < 240);
-    
-    t = 0;
-    tft.endUpdateAsync();
-    tft.waitUpdateAsyncComplete();
-    Serial.printf("Took %dms to stop async update\n", (int) t);
-  }
-
-  // start another clipped area updating?
-  if (asyncStarted && !tft.asyncUpdateActive() 
-    && (8 == UPDATE_MODE))
-  {
-    RUN_CHECK(updateClip);  // do next area
-    if (0 == whichBox)      // there isn't one...
-      asyncStarted = false; // ...so stop
-  }
-
-  if (asyncStarted && !tft.asyncUpdateActive())
-  {
-    asyncStarted = false;
-    if (3 != UPDATE_MODE // timer makes no sense for continuous update
-     && 7 != UPDATE_MODE)
-      Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
-    delay(500);
-  }
+      if (3 == UPDATE_MODE || 7 == UPDATE_MODE)
+      {
+        elapsedMillis t = 0;
+        do
+        {
+          delay(25);
+          RUN_CHECK(fillRect);
+          delay(25);
+        } while (t < 240);
+        
+        t = 0;
+        tft.endUpdateAsync();
+        tft.waitUpdateAsyncComplete();
+        Serial.printf("Took %dms to stop async update\n", (int) t);
+      }
 
 #if defined ST77XX_BLACK
-  if (asyncStarted && msecs > 50)
-  {
-    msecs = 0;
-    Serial.printf("Frames: %d; state %02X\n", tft.getFrameCount(0), tft._dma_state);
+      //if (msecs > 50)
+      if (asyncTime < 1 || msecs > 50)
+      {
+        msecs = 0;
+        Serial.printf("%dus: frames: %d; state %02X; CSR %08X; SADDR %08X\n", 
+                       (int) asyncTime,
+                       tft.getFrameCount(0), 
+                       tft._dma_state,
+                       tft._dma_data[0]._dmatx.TCD->CSR,
+                       tft._dma_data[0]._dmatx.TCD->SADDR
+                      );
+      }
+#endif // defined ST77XX_BLACK    
+    }
+    else
+    {
+      // start another clipped area updating?
+      if ((8 == UPDATE_MODE))
+      {
+        Serial.printf("...took %dus\n", (int) checkMicros);
+        RUN_CHECK(updateClip);  // do next area
+        if (0 == whichBox)      // there isn't one...
+        {
+          tft.setClipRect(); // let screen writes use the whole buffer
+          asyncStarted = false; // ...so stop
+        }
+      }
+      else
+      {
+        asyncStarted = false;
+        if (3 != UPDATE_MODE // timer makes no sense for continuous update
+        && 7 != UPDATE_MODE)
+          Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
+        delay(500);
+      }
+    }
   }
-#endif // defined ST77XX_BLACK
-
 }
