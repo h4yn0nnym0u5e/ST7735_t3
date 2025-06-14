@@ -23,7 +23,7 @@
  * 7 = async frame buffer, IRQ every chunk, continuous
  * 8 = async frame buffer, clipped
  */
-#define UPDATE_MODE 6
+#define UPDATE_MODE 8
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -299,6 +299,12 @@ void fillGrid(void)
 //=================================================================================
 void setup() {
   pinMode(LED_PWM, OUTPUT);
+
+  // debug pins
+  pinMode(0,OUTPUT);
+  pinMode(1,OUTPUT);
+  pinMode(2,OUTPUT);
+  
   //analogWrite(LED_PWM, 64);
   
   {
@@ -672,9 +678,16 @@ void loop()
     delay(10); // wait for library to parse WAV info
   }
 
-  if (millis() - lastCheck >= 100 && !asyncStarted)
+  //*
+  if (millis() - lastCheck >= 100 && !asyncStarted) // auto trigger
   {
     lastCheck = millis();
+  /*/
+  if (Serial.available()) // manual trigger
+  {
+    while (Serial.available())
+      Serial.read();
+  //*/
 
     Serial.println("========================");
     RUN_CHECK(fillRect);

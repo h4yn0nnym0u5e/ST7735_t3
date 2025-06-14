@@ -287,7 +287,7 @@ typedef class ST7735DMA_Data_class {
     {
       DMASetting& sb = _dmasettings[snum];
       uint8_t channel = _dmatx.channel;
-
+digitalWriteFast(1,1);
       totalRows = tRows - rows; // record rows remaining to do after this update
 
       // set up source: interleaved rows from "frame buffer"
@@ -316,6 +316,7 @@ typedef class ST7735DMA_Data_class {
       // overall setup stuff: no interrupts, just stop
       sb.TCD->CSR &= ~(DMA_TCD_CSR_INTMAJOR | DMA_TCD_CSR_INTHALF);
       sb.disableOnCompletion();
+digitalWriteFast(1,0);      
     }
 
     /**
@@ -811,10 +812,16 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool midTransaction(int x0=-1, uint16_t y0=0, uint16_t x1=0, uint16_t y1=0)
   {
     bool result = false;
+digitalWriteFast(0,1);
     bool inISR = (SCB_ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
     if (isPastMaxTransaction())
     {
       result = true;
+      while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
+        ;
+      while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
+        ;
+      waitTransmitComplete();
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
@@ -831,6 +838,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         writecommand(ST7735_RAMWR);
       }
     }
+digitalWriteFast(0,0);    
     return result;
   }
 

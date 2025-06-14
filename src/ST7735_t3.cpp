@@ -4207,8 +4207,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 					_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
 					// _dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
 					// _dma_data[_spi_num]._dmatx.enable();
+					_dma_data[_spi_num].startDMA( _spi_hardware->tx_dma_channel);
 				}
-				_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
 				break;
 			}
 			else
