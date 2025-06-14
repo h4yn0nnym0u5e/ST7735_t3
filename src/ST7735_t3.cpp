@@ -4698,13 +4698,13 @@ void ST7735_t3::dumpDMASettings() {
 	dumpDMA_TCD(&_dma_data[_spi_num]._dmatx);
 	dumpDMA_TCD(&_dma_data[_spi_num]._dmasettings[0]);
 	dumpDMA_TCD(&_dma_data[_spi_num]._dmasettings[1]);
+	Serial.println();
 #else
 	Serial.printf("DMA dump TX:%d RX:%d\n", _dmatx.channel, _dmarx.channel);
 	dumpDMA_TCD(&_dmatx);
 	dumpDMA_TCD(&_dmarx);
 #endif	
 #endif
-
 }
 
 // call to say update the screen now.
@@ -4812,9 +4812,6 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 		if (use_clip_rect && nullptr != _intbData)
 		{
 			_dma_state |= ST77XX_DMA_USE_CLIP;
-			snum = 1;
-			psrc = _intbData;
-			trigSrc = DMAMUX_SOURCE_MANUAL;
 
 			// set up first mem2mem copy
 			uint32_t rows = _displayclipy2 - _displayclipy1; // number of rows to output
@@ -4822,7 +4819,6 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 			uint32_t areaMem = rows * rowBytes;
 			if (areaMem > _intbSize) // can't do it all in one go...
 				rows = _intbSize / rowBytes; // ...do this many per frame
-			bytesToWrite = rows * rowBytes;
 			// Use _dmasettings[0] to do memory-to-memory copy
 			_dma_data[_spi_num].setDMAmem2mem(0, 
 						  _pfbtft + _displayclipy1*_width + _displayclipx1,
@@ -4830,6 +4826,12 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 						  _displayclipy2 - _displayclipy1 
 						 );
 			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
+
+			// modify settings for the mem2SPI DMA:
+			snum = 1;
+			psrc = _intbData;
+			bytesToWrite = rows * rowBytes;
+			trigSrc = DMAMUX_SOURCE_MANUAL;
 		}
 
 		_dma_data[_spi_num].setDMAone(snum, psrc, bytesToWrite, 2);

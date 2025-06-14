@@ -273,7 +273,7 @@ typedef class ST7735DMA_Data_class {
      * to update only the selected area, and the intermediate buffer
      * can then be streamed straight to it. 
      * 
-     * The TCD setup only does the memory-to-memory copy and then stops;
+     * The TCD as set up only does the memory-to-memory copy and then stops;
      * it can be modified to chain to a memory-to_SPI DMA transfer without
      * further CPU intervention.
      */
@@ -281,7 +281,7 @@ typedef class ST7735DMA_Data_class {
                        uint16_t* _pfbtft,     //!< first word in source (frame buffer)
                        uint32_t bytesPerRow,  //!< bytes per source row to copy
                        uint32_t rows,         //!< rows to copy
-                       uint32_t rowBytes,     //!< total bytes in one source row
+                       uint32_t screenRowBytes,  //!< total bytes in one screen row
                        uint16_t* _intb,       //!< intermediate buffer
                        uint32_t tRows)        //!< total rows we want to output
     {
@@ -295,9 +295,9 @@ typedef class ST7735DMA_Data_class {
       sb.TCD->SOFF  = 2; // increment by 2 after each read
       sb.TCD->ATTR_SRC = 1; // reads are 2 bytes
       sb.TCD->NBYTES = DMA_TCD_NBYTES_SMLOE // SADDR offset added after minor loop
-                    | DMA_TCD_NBYTES_MLOFFYES_MLOFF(rowBytes - bytesPerRow) // amount to add
+                    | DMA_TCD_NBYTES_MLOFFYES_MLOFF(screenRowBytes - bytesPerRow) // amount to add
                     | DMA_TCD_NBYTES_MLOFFYES_NBYTES(bytesPerRow); // minor loop copy amount (<1024)
-      sb.TCD->SLAST = rowBytes; // academic in hardware, useful for next block
+      sb.TCD->SLAST = screenRowBytes; // academic in hardware, useful for next block
       
       // link back to self after minor loop, 
       // so major loops get executed
@@ -335,13 +335,13 @@ typedef class ST7735DMA_Data_class {
       uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
       if (totalRows > 0) // we have something left to output
       {
-        uint32_t rowBytes = sb.TCD->SLAST; // bytes per screen row
-        uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + rowBytes*rows); // next FB address
+        uint32_t screenRowBytes = sb.TCD->SLAST; // bytes per screen row
+        uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + screenRowBytes*rows); // next FB address
 
         if (rows > totalRows) // might be the last copy, and thus smaller
           rows = totalRows;
 
-        setDMAmem2mem(snum, newStart, bytesPerRow, rows, rowBytes, (uint16_t*) sb.TCD->DADDR, totalRows);
+        setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, (uint16_t*) sb.TCD->DADDR, totalRows);
       }
       else 
         rows = 0; // nothing more to do
@@ -395,7 +395,7 @@ typedef class ST7735DMA_Data_class {
 
     bool isActive(void)
     {
-      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) && !asyncEnded;
+      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) || !asyncEnded;
     }
 
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
@@ -1061,7 +1061,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       COUNT_WORDS_WRITE = (_width * _height) / DMAchunks; // best we can do
     }
     int chunks = (_width * _height) / COUNT_WORDS_WRITE;
-    Serial.printf("Do %d chunks of %d words each\n",chunks,COUNT_WORDS_WRITE); Serial.flush();
+    // Serial.printf("Do %d chunks of %d words each\n",chunks,COUNT_WORDS_WRITE); Serial.flush();
     _dma_data[_spi_num].setFrameCount(chunks);
     _cnt_dma_settings = _dma_data[_spi_num].getDMAsettingsCount();
   }

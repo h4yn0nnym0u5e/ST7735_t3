@@ -23,11 +23,16 @@
  * 7 = async frame buffer, IRQ every chunk, continuous
  * 8 = async frame buffer, clipped
  */
-#define UPDATE_MODE 8
+#define UPDATE_MODE 6
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
-
+const char* sbok="should be OK", *xbrk="expected to be broken";
+const char* auok[] = 
+{
+  sbok, sbok, xbrk, xbrk, xbrk, // 0-4
+  xbrk, sbok, sbok, sbok        // 5-8
+};
 //------------------------------------------------------------
 
 #if defined ST77XX_BLACK // see which TFT we're using
@@ -71,7 +76,7 @@ AudioConnection          patchCord4(playSdWav1, 1, peak2, 0);
 AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
-#include <TeensyDebug.h>
+//#include <TeensyDebug.h>
 
 #if defined(MICRO_DEXED)
   #define TFT_DC      37
@@ -290,12 +295,23 @@ void fillGrid(void)
   tft.drawRect(0,0,tft.width(),tft.height(),ST77XX_WHITE);
 }
 
+
 //=================================================================================
 void setup() {
   pinMode(LED_PWM, OUTPUT);
   //analogWrite(LED_PWM, 64);
-  digitalWrite(LED_PWM,1);
   
+  {
+    bool blOn = false;
+    while (!Serial)
+    {
+      blOn = !blOn;
+      digitalWrite(LED_PWM,blOn);
+      delay(250);
+    }
+  }
+  digitalWrite(LED_PWM,1);
+    
   Serial.begin(9600);
   delay(100);
   //tft.setClock(16000000);
@@ -384,6 +400,9 @@ void setup() {
       break;
   }
   fillGrid();
+
+  Serial.printf("Update mode %d; audio playback from SD %s\n",
+                 UPDATE_MODE, auok[UPDATE_MODE]);
   
   delay(100);
 }
@@ -772,6 +791,7 @@ void loop()
       if ((8 == UPDATE_MODE))
       {
         Serial.printf("...took %dus\n", (int) checkMicros);
+        delay(10);
         RUN_CHECK(updateClip);  // do next area
         if (0 == whichBox)      // there isn't one...
         {
