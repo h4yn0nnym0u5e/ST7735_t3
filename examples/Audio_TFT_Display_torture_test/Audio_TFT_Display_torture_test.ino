@@ -60,7 +60,9 @@ const char* auok[] =
 
 #define COUNT_OF(a) ((int)(sizeof a / sizeof a[0]))
 
+
 #include <Audio.h>
+//DMAChannel dummy;
 ///////////////////////////////////
 // copy the Design Tool code here
 ///////////////////////////////////
@@ -297,6 +299,58 @@ void fillGrid(void)
 
 
 //=================================================================================
+// Some of this may not work if classes have their proper 
+// public / protected / private settings in place
+void printSetup(void)
+{
+  bool has_DMA_preemption = 
+#if defined(DMA_DCHPRI_DPA) // we have pre-emption capability
+  true 
+#else
+  false  
+#endif // defined(DMA_DCHPRI_DPA)  
+  ; 
+
+#if 1  
+  Serial.printf("Frame buffer: %08X; intermediate buffer: %08X (%d)\n",
+    tft._pfbtft, tft._intbData, tft._intbSize);
+#endif // 1 or 0
+
+  Serial.printf("DMA pre-emption is %spossible\n",
+                has_DMA_preemption?"":"not ");
+  Serial.printf("Update mode %d; audio playback from SD %s\n",
+      UPDATE_MODE, auok[UPDATE_MODE]);
+}
+
+extern uint32_t dma_channel_allocated_mask;
+void printDMAchannel(void)
+{
+  static bool done = false;
+
+  if (!done && 0 != (tft._dma_state & 0x01 /* ST77XX_DMA_INIT */))
+  {
+    tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority again, just in case
+    auto priBase = &DMA_DCHPRI3; // very weird register order: see 6.5.5.18
+    Serial.printf("DMA channel allocation: %08X\n", dma_channel_allocated_mask);
+    uint8_t channel = tft._dma_data[0]._dmatx.channel;
+    Serial.printf("SPI DMA is using channel %d; DMA priority %02X; ISR priority %d\n",
+      channel,
+      priBase[channel+3 - 2*(channel&3)],
+      NVIC_GET_PRIORITY(channel & 15));
+
+    NVIC_SET_PRIORITY(channel&15,224); // force lower priority
+
+    channel = i2s1.dma.channel;
+    Serial.printf("Audio DMA is using channel %d; DMA priority %02X; ISR priority %d\n",
+        channel,
+        priBase[channel+3 - 2*(channel&3)],
+        NVIC_GET_PRIORITY(channel & 15));
+  
+    done = true;
+  }
+}
+
+//---------------------------------------------------------------------------------
 void setup() {
   pinMode(LED_PWM, OUTPUT);
 
@@ -397,8 +451,6 @@ void setup() {
         // i.e. 960 pixels, or 30x32 pixels, etc.
         tft.useIntermediateBuffer(tft.width() * 2 * 2);
         tft.useFrameBuffer(true);
-        Serial.printf("Frame buffer: %08X; intermediate buffer: %08X (%d)\n",
-                       tft._pfbtft, tft._intbData, tft._intbSize);
       }
       break;
 
@@ -407,8 +459,7 @@ void setup() {
   }
   fillGrid();
 
-  Serial.printf("Update mode %d; audio playback from SD %s\n",
-                 UPDATE_MODE, auok[UPDATE_MODE]);
+  printSetup();
   
   delay(100);
 }
@@ -765,6 +816,8 @@ void loop()
   */
   if (asyncStarted)
   {
+    printDMAchannel(); // only happens once
+
     if (tft.asyncUpdateActive())
     {
       if (3 == UPDATE_MODE || 7 == UPDATE_MODE)

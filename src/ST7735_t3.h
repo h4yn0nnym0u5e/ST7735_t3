@@ -287,7 +287,7 @@ typedef class ST7735DMA_Data_class {
     {
       DMASetting& sb = _dmasettings[snum];
       uint8_t channel = _dmatx.channel;
-digitalWriteFast(1,1);
+
       totalRows = tRows - rows; // record rows remaining to do after this update
 
       // set up source: interleaved rows from "frame buffer"
@@ -316,7 +316,6 @@ digitalWriteFast(1,1);
       // overall setup stuff: no interrupts, just stop
       sb.TCD->CSR &= ~(DMA_TCD_CSR_INTMAJOR | DMA_TCD_CSR_INTHALF);
       sb.disableOnCompletion();
-digitalWriteFast(1,0);      
     }
 
     /**
@@ -358,9 +357,18 @@ digitalWriteFast(1,0);
      */
     void chainDMA(int s1, int s2)
     {
+      /*
+      // Auto-chain: seems to interfere with audio
       _dmasettings[s1].replaceSettingsOnCompletion(_dmasettings[s2]);
       _dmasettings[s1].TCD->CSR &= ~DMA_TCD_CSR_DREQ;
       _dmasettings[s2].interruptAtCompletion();   
+      /*/
+      // Interrupt after memory copy AND SPI transfer
+      _dmasettings[s1].interruptAtCompletion();   
+      _dmasettings[s1].disableOnCompletion();   
+      _dmasettings[s2].interruptAtCompletion();   
+      _dmasettings[s2].disableOnCompletion();   
+      //*/
     }
 
 
@@ -376,14 +384,22 @@ digitalWriteFast(1,0);
     // start copying pixels from frame buffer
     // to display using DMA; OR use a chained
     // mem2mem -> mem2SPI setup
-    void startDMA(uint8_t triggerSource)
+    void startDMA(uint8_t triggerSource, int snum = 0)
     {
-      _dmatx = _dmasettings[0];
+      _dmatx = _dmasettings[snum];
 #define DMAMUX_SOURCE_MANUAL 255 // special for manual trigger
       if (DMAMUX_SOURCE_MANUAL == triggerSource)
+      {
+//        Serial.println("Started memory-to-memory");
+digitalWriteFast(0,0);
         _dmatx.triggerManual();
+      }
       else
+      {
+//        Serial.println("Started SPI transfer");
+digitalWriteFast(0,1);
         _dmatx.triggerAtHardwareEvent(triggerSource);
+      }
       _dmatx.begin(false);
       _dmatx.enable();    
     }
@@ -812,8 +828,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool midTransaction(int x0=-1, uint16_t y0=0, uint16_t x1=0, uint16_t y1=0)
   {
     bool result = false;
-digitalWriteFast(0,1);
     bool inISR = (SCB_ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
+
     if (isPastMaxTransaction())
     {
       result = true;
@@ -831,14 +847,14 @@ digitalWriteFast(0,1);
       else // caller relies on bounding rectangle being re-set: do extra work
       {
         writecommand_last(ST7735_NOP);
-        endSPITransaction();   // ... let other SPI stuff
+        endSPITransaction();   // ... let other SPI stuff ...
         if (yieldInMidTransaction && !inISR) yield();
-        beginSPITransaction(); // have a go
+        beginSPITransaction(); // ...have a go
         setAddr((uint16_t) x0, y0, x1, y1);
         writecommand(ST7735_RAMWR);
       }
     }
-digitalWriteFast(0,0);    
+ 
     return result;
   }
 
@@ -916,12 +932,12 @@ digitalWriteFast(0,0);
         else 
           DIRECT_WRITE_LOW(_dcport, _dcpinmask);
         _pimxrt_spi->TCR = _spi_tcr_current & ~(LPSPI_TCR_PCS(3) | LPSPI_TCR_CONT); // go ahead and update TCR anyway?  
-
       }
     }
   }
 
   inline void beginSPITransaction() {
+digitalWriteFast(0,1);
     cyccntAtBegin = ARM_DWT_CYCCNT;
     if (hwSPI) _pspi->beginTransaction(_spiSettings);
     if (!_dcport) _spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
@@ -929,6 +945,7 @@ digitalWriteFast(0,0);
   }
 
   inline void endSPITransaction() {
+digitalWriteFast(0,0);
     if (_csport)DIRECT_WRITE_HIGH(_csport, _cspinmask);
     if (hwSPI) _pspi->endTransaction();  
     updateMaxTransaction();
@@ -944,9 +961,9 @@ digitalWriteFast(0,0);
         }
     } while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0) ;
  }
+
  void waitTransmitComplete(void)  {
     uint32_t tmp __attribute__((unused));
-//    digitalWriteFast(2, HIGH);
 
     while (_pending_rx_count) {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
@@ -955,7 +972,6 @@ digitalWriteFast(0,0);
         }
     }
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF;       // Clear RX FIFO
-//    digitalWriteFast(2, LOW);
 }
 
 

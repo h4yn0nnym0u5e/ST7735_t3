@@ -4186,20 +4186,32 @@ void ST7735_t3::process_dma_interrupt(void) {
 				// most of the DMA setup is already done - just change stuff and re-enable
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{
-					uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
-					if (bytesToOutput > 0) // more to output - do rest of preparation
+					_dma_data[_spi_num]._dmatx.clearComplete();
+					// Is this the memory-to-memory transfer complete?
+					if (0 != (_dma_data[_spi_num]._dmatx.TCD->BITER & DMA_TCD_BITER_ELINK))
 					{
-						_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
-						_dma_data[_spi_num].chainDMA(0, 1);
 #ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
 #endif
-					  _dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
+						_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel,1);
 					}
 					else
 					{
-						_dma_data[_spi_num]._dmatx.disable();
-						_dma_data[_spi_num].asyncEnded = true; // finished
+						uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
+						if (bytesToOutput > 0) // more to output - do rest of preparation
+						{
+							_dma_data[_spi_num].chainDMA(0, 1);
+							_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
+#ifdef DEBUG_ASYNC_UPDATE
+	dumpDMASettings();
+#endif
+							_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
+						}
+						else
+						{
+							_dma_data[_spi_num]._dmatx.disable();
+							_dma_data[_spi_num].asyncEnded = true; // finished
+						}
 					}
 				}
 				else
@@ -4207,7 +4219,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 					_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
 					// _dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
 					// _dma_data[_spi_num]._dmatx.enable();
-					_dma_data[_spi_num].startDMA( _spi_hardware->tx_dma_channel);
+					_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel);
 				}
 				break;
 			}
@@ -4630,7 +4642,11 @@ void	ST7735_t3::initDMASettings(void)
 	// Setup DMA main object
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
+#if defined(DMA_DCHPRI_DPA) // we have pre-emption capability - say we're pre-emptible
+	_dma_data[_spi_num]._dmatx.begin(true,true);
+#else // no pre-emption possible
 	_dma_data[_spi_num]._dmatx.begin(true);
+#endif // defined(DMA_DCHPRI_DPA)	
 	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(dmaTXevent);
 	_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
 	_attachInterrupt();
