@@ -357,8 +357,8 @@ typedef class ST7735DMA_Data_class {
      */
     void chainDMA(int s1, int s2)
     {
-      /*
-      // Auto-chain: seems to interfere with audio
+      //*
+      // Auto-chain: no longer seems to interfere with audio
       _dmasettings[s1].replaceSettingsOnCompletion(_dmasettings[s2]);
       _dmasettings[s1].TCD->CSR &= ~DMA_TCD_CSR_DREQ;
       _dmasettings[s2].interruptAtCompletion();   
@@ -390,14 +390,10 @@ typedef class ST7735DMA_Data_class {
 #define DMAMUX_SOURCE_MANUAL 255 // special for manual trigger
       if (DMAMUX_SOURCE_MANUAL == triggerSource)
       {
-//        Serial.println("Started memory-to-memory");
-digitalWriteFast(0,0);
         _dmatx.triggerManual();
       }
       else
       {
-//        Serial.println("Started SPI transfer");
-digitalWriteFast(0,1);
         _dmatx.triggerAtHardwareEvent(triggerSource);
       }
       _dmatx.begin(false);
@@ -687,6 +683,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
   void  setDMAinterruptPriority(int prio = 128) { _attachInterrupt(prio); }
+  void  forceDMAinterruptPriority(int prio = 128) { _forceInterrupt(prio); }
   void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
@@ -705,6 +702,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  updateScreen(void) {return;}       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
   void  setDMAinterruptPriority(int prio = 128) {return;}
+  void  forceDMAinterruptPriority(int prio = 128) {return;}
   void  setMaxDMAlines(int lines) { return; }
   void  waitUpdateAsyncComplete(void) {return;}
   void  endUpdateAsync() {return;}      // Turn of the continueous mode fla
@@ -725,7 +723,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   }
 
 
- //protected:
+ protected:
   uint8_t  tabcolor;
 
   void     spiwrite(uint8_t),
@@ -937,7 +935,6 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   }
 
   inline void beginSPITransaction() {
-digitalWriteFast(0,1);
     cyccntAtBegin = ARM_DWT_CYCCNT;
     if (hwSPI) _pspi->beginTransaction(_spiSettings);
     if (!_dcport) _spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
@@ -945,7 +942,6 @@ digitalWriteFast(0,1);
   }
 
   inline void endSPITransaction() {
-digitalWriteFast(0,0);
     if (_csport)DIRECT_WRITE_HIGH(_csport, _cspinmask);
     if (hwSPI) _pspi->endTransaction();  
     updateMaxTransaction();
@@ -1098,6 +1094,22 @@ digitalWriteFast(0,0);
     if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt, ISRpriority);
     else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1, ISRpriority);
     else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2, ISRpriority);    
+  }
+
+  /*
+   * Some variants of cores enforce "highest selected"
+   * priority for shared DMA interrupts, but the user may need to 
+   * override this in some use cases, e.g. if SPI and audio 
+   * end up using DMA channels that are 16 apart.
+   */
+  void _forceInterrupt(int prio = -1)
+  {
+    // probably could use const table of functions...
+    if (prio > 0)
+      ISRpriority = prio;
+    uint8_t channel = _dma_data[_spi_num]._dmatx.channel;      
+    
+    NVIC_SET_PRIORITY((channel & 15) + IRQ_DMA_CH0, ISRpriority);
   }
 
   static ST7735DMA_Data _dma_data[3];   // one structure for each SPI buss... 

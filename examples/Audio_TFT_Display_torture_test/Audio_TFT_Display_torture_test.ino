@@ -14,7 +14,8 @@
 
 /* 
  * Pick an update mode: 
- * 0 = immediate, 1 = frame buffer 
+ * 0 = immediate
+ * 1 = frame buffer 
  * 2 = async frame buffer
  * 3 = async frame buffer, continuous
  * 4 = async frame buffer; do in one DMA request
@@ -301,6 +302,7 @@ void fillGrid(void)
 //=================================================================================
 // Some of this may not work if classes have their proper 
 // public / protected / private settings in place
+#define noCLASSES_UNPROTECTED 
 void printSetup(void)
 {
   bool has_DMA_preemption = 
@@ -311,43 +313,43 @@ void printSetup(void)
 #endif // defined(DMA_DCHPRI_DPA)  
   ; 
 
-#if 1  
+#if defined(CLASSES_UNPROTECTED) // only available if protection removed
   Serial.printf("Frame buffer: %08X; intermediate buffer: %08X (%d)\n",
     tft._pfbtft, tft._intbData, tft._intbSize);
-#endif // 1 or 0
+#endif // defined(CLASSES_UNPROTECTED)
 
   Serial.printf("DMA pre-emption is %spossible\n",
                 has_DMA_preemption?"":"not ");
+
+  const char* audioOK = auok[UPDATE_MODE];
+  if (8 == UPDATE_MODE && !has_DMA_preemption)
+    audioOK = "requires DMA pre-emption to work";
   Serial.printf("Update mode %d; audio playback from SD %s\n",
-      UPDATE_MODE, auok[UPDATE_MODE]);
+      UPDATE_MODE, audioOK);
 }
 
 extern uint32_t dma_channel_allocated_mask;
 void printDMAchannel(void)
 {
+#if defined(CLASSES_UNPROTECTED)
   static bool done = false;
 
   if (!done && 0 != (tft._dma_state & 0x01 /* ST77XX_DMA_INIT */))
   {
-    tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority again, just in case
-    auto priBase = &DMA_DCHPRI3; // very weird register order: see 6.5.5.18
+    // Show DMA channel allocation mask
     Serial.printf("DMA channel allocation: %08X\n", dma_channel_allocated_mask);
+
+    auto priBase = &DMA_DCHPRI3; // very weird register order: see 6.5.5.18
     uint8_t channel = tft._dma_data[0]._dmatx.channel;
+    NVIC_SET_PRIORITY(channel&15,224); // force lower priority
     Serial.printf("SPI DMA is using channel %d; DMA priority %02X; ISR priority %d\n",
       channel,
       priBase[channel+3 - 2*(channel&3)],
       NVIC_GET_PRIORITY(channel & 15));
-
-    NVIC_SET_PRIORITY(channel&15,224); // force lower priority
-
-    channel = i2s1.dma.channel;
-    Serial.printf("Audio DMA is using channel %d; DMA priority %02X; ISR priority %d\n",
-        channel,
-        priBase[channel+3 - 2*(channel&3)],
-        NVIC_GET_PRIORITY(channel & 15));
   
     done = true;
   }
+#endif // defined(CLASSES_UNPROTECTED)
 }
 
 //---------------------------------------------------------------------------------
@@ -700,10 +702,40 @@ uint32_t check_updateClip(void)
     case 1:
       tft.setClipRect(60,200,200,40);
       break;
+
+    case 2:
+      tft.setClipRect(0,0,480,40);
+      break;
+
+    case 3:
+      tft.setClipRect(40,120,440,80);
+      break;
+
+    case 4:
+      tft.setClipRect(0,40,40,280);
+      break;
+
+    case 5:
+      tft.setClipRect(120,40,307,80);
+      break;
+
+    case 6:
+      tft.setClipRect(260,200,67,83);
+      break;
+  
+    case 7:
+      tft.setClipRect(40,200,40,120);
+      break;
+  
+    case 8:
+      tft.setClipRect(80,240,180,17);
+      break;
   }
 
   if (whichBox >= 0)
+  {
     tft.updateScreenAsync(false,true,true);
+  }
   whichBox++;
   return whichBox-1;
 }
@@ -730,7 +762,9 @@ void loop()
   }
 
   //*
-  if (millis() - lastCheck >= 100 && !asyncStarted) // auto trigger
+  if (millis() - lastCheck >= 100 // auto trigger
+      && !asyncStarted
+      ) 
   {
     lastCheck = millis();
   /*/
@@ -818,6 +852,25 @@ void loop()
   {
     printDMAchannel(); // only happens once
 
+    /*
+     * The first async update initialises the DMA, but for
+     * mode 8 we need the pre-emptible DMA library, and that
+     * can cause issues with lowering the DMA interrupt priority
+     * if e.g. SPI is on channel 0 and audio on channel 16
+     * 
+     * Hence, AFTER the first update is started, and once only,
+     * we force the interrupt to low priority. Audio still seems
+     * to work OK, though a better strategy is needed, really.
+     */
+#if defined(DMA_DCHPRI_DPA)  // DMA has pre-emption capability
+    static bool forceDone = false;
+    if (!forceDone)
+    {
+      forceDone = true;
+      tft.forceDMAinterruptPriority(224); // lower the DMA interrupt priority
+    }
+#endif // defined(DMA_DCHPRI_DPA)    
+
     if (tft.asyncUpdateActive())
     {
       if (3 == UPDATE_MODE || 7 == UPDATE_MODE)
@@ -837,17 +890,23 @@ void loop()
       }
 
 #if defined ST77XX_BLACK
-      //if (msecs > 50)
-      if (asyncTime < 1 || msecs > 50)
+      if (msecs > 50)
       {
         msecs = 0;
+#if defined(CLASSES_UNPROTECTED)
         Serial.printf("%dus: frames: %d; state %02X; CSR %08X; SADDR %08X\n", 
-                       (int) asyncTime,
-                       tft.getFrameCount(0), 
-                       tft._dma_state,
-                       tft._dma_data[0]._dmatx.TCD->CSR,
-                       tft._dma_data[0]._dmatx.TCD->SADDR
-                      );
+                    (int) asyncTime,
+                    tft.getFrameCount(0), 
+                    tft._dma_state,
+                    tft._dma_data[0]._dmatx.TCD->CSR,
+                    tft._dma_data[0]._dmatx.TCD->SADDR
+                  );
+#else                  
+        Serial.printf("%dus: frames: %d\n", 
+                    (int) asyncTime,
+                    tft.getFrameCount(0)
+                  );
+#endif // defined(CLASSES_UNPROTECTED)                    
       }
 #endif // defined ST77XX_BLACK    
     }
@@ -857,12 +916,13 @@ void loop()
       if ((8 == UPDATE_MODE))
       {
         Serial.printf("...took %dus\n", (int) checkMicros);
-        delay(10);
+        delay(50);
         RUN_CHECK(updateClip);  // do next area
         if (0 == whichBox)      // there isn't one...
         {
           tft.setClipRect(); // let screen writes use the whole buffer
           asyncStarted = false; // ...so stop
+          delay(500);
         }
       }
       else

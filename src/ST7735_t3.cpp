@@ -24,7 +24,7 @@
 #include <SPI.h>
 
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
-#define DEBUG_ASYNC_UPDATE
+//#define DEBUG_ASYNC_UPDATE
 //#define DEBUG_ASYNC_LEDS
 #ifdef DEBUG_ASYNC_LEDS
   #define DEBUG_PIN_1 0
@@ -4187,32 +4187,23 @@ void ST7735_t3::process_dma_interrupt(void) {
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{
 					_dma_data[_spi_num]._dmatx.clearComplete();
-					// Is this the memory-to-memory transfer complete?
-					if (0 != (_dma_data[_spi_num]._dmatx.TCD->BITER & DMA_TCD_BITER_ELINK))
+
+					uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
+					if (bytesToOutput > 0) // more to output - do rest of preparation
 					{
+						_dma_data[_spi_num].chainDMA(0, 1);
+						_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
 #ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
 #endif
-						_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel,1);
+						_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
 					}
 					else
 					{
-						uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
-						if (bytesToOutput > 0) // more to output - do rest of preparation
-						{
-							_dma_data[_spi_num].chainDMA(0, 1);
-							_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
-#ifdef DEBUG_ASYNC_UPDATE
-	dumpDMASettings();
-#endif
-							_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
-						}
-						else
-						{
-							_dma_data[_spi_num]._dmatx.disable();
-							_dma_data[_spi_num].asyncEnded = true; // finished
-						}
+						_dma_data[_spi_num]._dmatx.disable();
+						_dma_data[_spi_num].asyncEnded = true; // finished
 					}
+					
 				}
 				else
 				{
