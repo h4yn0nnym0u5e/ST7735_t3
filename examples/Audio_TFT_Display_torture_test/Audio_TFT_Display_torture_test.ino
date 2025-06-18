@@ -371,6 +371,8 @@ void setup() {
       digitalWrite(LED_PWM,blOn);
       delay(250);
     }
+    if (CrashReport)
+      Serial.print(CrashReport);
   }
   digitalWrite(LED_PWM,1);
     
@@ -379,8 +381,14 @@ void setup() {
   //tft.setClock(16000000);
     // Setup the LCD screen
 #if defined ST77XX_BLACK
+  Serial.print("ST7796_t3::init ... ");
   tft.init(320, 480);
+  Serial.println("done");
   tft.setRotation(ROTATE);         // Rotates screen to match the baseboard orientation
+#if defined(TEENSY_DEBUG_H)
+  halt_cpu();
+#endif // defined(TEENSY_DEBUG_H)
+  
   tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority
 
   // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
@@ -404,10 +412,6 @@ void setup() {
   tft.fillScreen(ST7735_BLACK);
   fillGrid();
 
-#if defined(TEENSY_DEBUG_H)
-  halt_cpu();
- #endif // defined(TEENSY_DEBUG_H)
-  
 
   tft.useFrameBuffer(true);
   makeSave(&save1[0],0);
@@ -862,7 +866,7 @@ void loop()
      * we force the interrupt to low priority. Audio still seems
      * to work OK, though a better strategy is needed, really.
      */
-#if defined(DMA_DCHPRI_DPA)  // DMA has pre-emption capability
+#if defined(xDMA_DCHPRI_DPA)  // DMA has pre-emption capability
     static bool forceDone = false;
     if (!forceDone)
     {

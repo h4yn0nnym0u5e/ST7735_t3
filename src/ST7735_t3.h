@@ -34,6 +34,7 @@
 #define ENABLE_ST77XX_FRAMEBUFFER
 #elif defined(__IMXRT1062__)
 #define ENABLE_ST77XX_FRAMEBUFFER
+extern uint32_t dma_channel_allocated_mask;
 #endif
 // Lets allow the user to define if they want T3.2 to enable frame buffer.
 // it will only work on subset of displays due to memory
@@ -207,6 +208,35 @@ typedef class ST7735DMA_Data_class {
     uint32_t totalRows; // total rows (left) to do in async update
     bool asyncEnded; // this is a bit of a hack - fix later...
 
+    void begin(void)
+    {
+      uint32_t startMask = dma_channel_allocated_mask;
+      uint32_t chMask = startMask;
+
+      Serial.printf("Allocated channels: %08X\n", startMask);
+      // We want a pre-emptible channel (0-15) where the
+      // corresponding non-pre-emptible one is unused, so
+      // we get our own interrupt
+      chMask |= chMask >> 16;
+      if (0xFFFF != (chMask & 0xFFFF)) // if there's a spare one
+      {
+        dma_channel_allocated_mask |= chMask; // mask out used
+        Serial.printf("Faked channels: %08X\n", dma_channel_allocated_mask);
+        chMask = dma_channel_allocated_mask; // keep for later
+      }
+
+      _dmatx.begin(true,true);
+      if (0xFFFF != (chMask & 0xFFFF)) // if there was a spare channel before
+      {
+        chMask ^= dma_channel_allocated_mask; // find the just allocated one
+        Serial.printf("New channel: %08X\n", chMask);
+        // at this point we  mask BOTH channels as allocated,
+        // preventing an interrupt clash but wasting a channel
+        chMask |= chMask << 16;
+        dma_channel_allocated_mask = startMask | chMask; // restore sane allocation mask
+      }
+      Serial.printf("Allocated channels: %08X\n", dma_channel_allocated_mask);
+    }
 
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
     {
@@ -357,18 +387,10 @@ typedef class ST7735DMA_Data_class {
      */
     void chainDMA(int s1, int s2)
     {
-      //*
       // Auto-chain: no longer seems to interfere with audio
       _dmasettings[s1].replaceSettingsOnCompletion(_dmasettings[s2]);
       _dmasettings[s1].TCD->CSR &= ~DMA_TCD_CSR_DREQ;
       _dmasettings[s2].interruptAtCompletion();   
-      /*/
-      // Interrupt after memory copy AND SPI transfer
-      _dmasettings[s1].interruptAtCompletion();   
-      _dmasettings[s1].disableOnCompletion();   
-      _dmasettings[s2].interruptAtCompletion();   
-      _dmasettings[s2].disableOnCompletion();   
-      //*/
     }
 
 
@@ -682,8 +704,18 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  updateScreen(void);       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
-  void  setDMAinterruptPriority(int prio = 128) { _attachInterrupt(prio); }
-  void  forceDMAinterruptPriority(int prio = 128) { _forceInterrupt(prio); }
+  void  setDMAinterruptPriority(int prio = 128) 
+  { 
+    ISRpriority = prio;
+    initDMASettings(); // ensure DMA is initialised and channel allocated
+    uint8_t ch = _dma_data[_spi_num]._dmatx.channel;
+    Serial.printf("Using DMA channel %d; priority is %d\n",ch,NVIC_GET_PRIORITY((ch & 15) + IRQ_DMA_CH0));
+  }
+  void  forceDMAinterruptPriority(int prio = 128) 
+  { 
+    initDMASettings(); // ensure DMA is initialised and channel allocated
+    _forceInterrupt(prio); 
+  }
   void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
@@ -1104,13 +1136,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
    */
   void _forceInterrupt(int prio = -1)
   {
-    // probably could use const table of functions...
+      // probably could use const table of functions...
     if (prio > 0)
       ISRpriority = prio;
     uint8_t channel = _dma_data[_spi_num]._dmatx.channel;      
     
     NVIC_SET_PRIORITY((channel & 15) + IRQ_DMA_CH0, ISRpriority);
   }
+
 
   static ST7735DMA_Data _dma_data[3];   // one structure for each SPI buss... 
   // try work around DMA memory cached.  So have a couple of buffers we copy frame buffer into

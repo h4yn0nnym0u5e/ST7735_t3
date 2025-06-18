@@ -883,7 +883,9 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		_tcr_dc_assert = LPSPI_TCR_PCS(0);
     	_tcr_dc_not_assert = LPSPI_TCR_PCS(1);
 	}
+	Serial.println("init: maybeUpdateTCR ...");
 	maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(7));
+	Serial.println("... done");
 
     // Teensy LC
 #elif defined(__MKL26Z64__)
@@ -4085,7 +4087,7 @@ void ST7735_t3::dmaInterrupt2(void) {
 }
 
 
-#ifdef DEBUG_ASYNC_UPDATE
+#ifndef DEBUG_ASYNC_UPDATE
 extern void dumpDMA_TCD(DMABaseClass *dmabc);
 #endif
 
@@ -4133,6 +4135,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 	// Teensy 4.x
   	//=========================================================
 	_dma_data[_spi_num]._dmatx.clearInterrupt();
+	Serial.print('.');
 
 	if (_frame_callback_on_HalfDone &&
 		(_dma_data[_spi_num]._dmatx.TCD->SADDR >= _dma_data[_spi_num]._dmasettings[1].TCD->SADDR)) 
@@ -4513,7 +4516,7 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
   	clearChangedRange(); // make sure the dirty range is updated.
 }			 
 
-#ifdef DEBUG_ASYNC_UPDATE
+#ifndef DEBUG_ASYNC_UPDATE
 
 void dumpDMA_TCD(DMABaseClass *dmabc)
 {
@@ -4530,9 +4533,10 @@ void dumpDMA_TCD(DMABaseClass *dmabc)
 void	ST7735_t3::initDMASettings(void) 
 {
 	// Serial.printf("initDMASettings called %d\n", _dma_state);
-  if (_dma_state & ST77XX_DMA_INIT) { // should test for init, but...
-		return;	// we already init this. 
+	if (_dma_state & ST77XX_DMA_INIT) { // should test for init, but...
+			return;	// we already init this. 
 	}
+	_dma_state = ST77XX_DMA_INIT;  // MUST be first thing set! Prevent recursion...
 #ifdef DEBUG_ASYNC_LEDS	
   pinMode(DEBUG_PIN_1, OUTPUT); digitalWrite(DEBUG_PIN_1, LOW);
   pinMode(DEBUG_PIN_2, OUTPUT); digitalWrite(DEBUG_PIN_2, LOW);
@@ -4634,13 +4638,16 @@ void	ST7735_t3::initDMASettings(void)
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
 #if defined(DMA_DCHPRI_DPA) // we have pre-emption capability - say we're pre-emptible
-	_dma_data[_spi_num]._dmatx.begin(true,true);
+	//_dma_data[_spi_num]._dmatx.begin(true,true);
+	_dma_data[_spi_num].begin(); // special begin() sequence
 #else // no pre-emption possible
 	_dma_data[_spi_num]._dmatx.begin(true);
 #endif // defined(DMA_DCHPRI_DPA)	
 	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(dmaTXevent);
-	_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
-	_attachInterrupt();
+dumpDMASettings();
+	//_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
+	_dma_data[_spi_num]._dmatx.disable();
+	_attachInterrupt(ISRpriority);
 #else
 	// T3.5
 	// Lets setup the write size.  For SPI we can use up to 32767 so same size as we use on T3.6...
@@ -4685,13 +4692,12 @@ void	ST7735_t3::initDMASettings(void)
 	//Serial.printf("Init DMA Settings: TX:%d size:%d\n", dmaTXevent, _dma_write_size_words);
 
 #endif
-	_dma_state = ST77XX_DMA_INIT;  // Should be first thing set!
 	// Serial.println("DMA initDMASettings - end");
 }
 #endif
 
 void ST7735_t3::dumpDMASettings() {
-#ifdef DEBUG_ASYNC_UPDATE
+#ifndef DEBUG_ASYNC_UPDATE
 #if defined(__MK66FX1M0__) 
 	// T3.6
 	Serial.printf("DMA dump TCDs %d\n", _dmatx.channel);
