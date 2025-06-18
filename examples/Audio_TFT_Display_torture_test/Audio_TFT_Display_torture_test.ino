@@ -14,18 +14,19 @@
 
 /* 
  * Pick an update mode: 
- * 0 = immediate
- * 1 = frame buffer 
- * 2 = async frame buffer
- * 3 = async frame buffer, continuous
- * 4 = async frame buffer; do in one DMA request
- * 5 = async frame buffer in PSRAM
- * 6 = async frame buffer, IRQ every chunk
- * 7 = async frame buffer, IRQ every chunk, continuous
- * 8 = async frame buffer, clipped
- * 9 = async frame buffer, update changed range
+ *  0 = immediate
+ *  1 = frame buffer 
+ *  2 = async frame buffer
+ *  3 = async frame buffer, continuous
+ *  4 = async frame buffer; do in one DMA request
+ *  5 = async frame buffer in PSRAM
+ *  6 = async frame buffer, IRQ every chunk
+ *  7 = async frame buffer, IRQ every chunk, continuous
+ *  8 = async frame buffer, clipped
+ *  9 = async frame buffer, update changed range
+ * 10 = async frame buffer in PSRAM, update changed range
  */
-#define UPDATE_MODE 9
+#define UPDATE_MODE 10
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -33,7 +34,8 @@ const char* sbok="should be OK", *xbrk="expected to be broken";
 const char* auok[] = 
 {
   sbok, sbok, xbrk, xbrk, xbrk, // 0-4
-  xbrk, sbok, sbok, sbok, sbok  // 5-9
+  xbrk, sbok, sbok, sbok, sbok, // 5-9
+  sbok
 };
 //------------------------------------------------------------
 
@@ -354,6 +356,17 @@ void printDMAchannel(void)
 }
 
 //---------------------------------------------------------------------------------
+void fbInPSRAM(void)
+{
+  uint16_t* fb = (uint16_t*) extmem_malloc(tft.width() * tft.height() * 2);
+  if (nullptr != fb)
+  {
+    Serial.println("Allocated frame buffer in PSRAM");
+    tft.setFrameBuffer(fb);
+  }
+}
+
+//---------------------------------------------------------------------------------
 void setup() {
   pinMode(LED_PWM, OUTPUT);
 
@@ -440,19 +453,15 @@ void setup() {
   switch (UPDATE_MODE)
   {
     case 5:
-      {
-        uint16_t* fb = (uint16_t*) extmem_malloc(tft.width() * tft.height() * 2);
-        if (nullptr != fb)
-        {
-          Serial.println("Allocated frame buffer in PSRAM");
-          tft.setFrameBuffer(fb);
-        }
-      }
+      fbInPSRAM();
       // fallthrough
     default:
       tft.useFrameBuffer(true);
       break;
 
+    case 10:
+      fbInPSRAM();
+      // fallthrough
     case 8:
     case 9:
       {
@@ -759,11 +768,11 @@ void run_async_check(const char* name, uint32_t num)
   Serial.printf(" took %dus\n",(int) asyncTime);
 }
 
-#if 9 == UPDATE_MODE
+#if 9 == UPDATE_MODE || 10 == UPDATE_MODE
   #define RUN_CHECK(n)  run_async_check(#n,check_##n())
 #else
   #define RUN_CHECK(n) Serial.printf("Check " #n ": %d\n", check_##n())
-#endif // 9 == UPDATE_MODE
+#endif // 9 or 10 == UPDATE_MODE
 
 //=================================================================================
 //=================================================================================
