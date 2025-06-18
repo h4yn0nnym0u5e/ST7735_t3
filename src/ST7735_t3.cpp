@@ -883,9 +883,7 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		_tcr_dc_assert = LPSPI_TCR_PCS(0);
     	_tcr_dc_not_assert = LPSPI_TCR_PCS(1);
 	}
-	Serial.println("init: maybeUpdateTCR ...");
 	maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(7));
-	Serial.println("... done");
 
     // Teensy LC
 #elif defined(__MKL26Z64__)
@@ -4087,7 +4085,7 @@ void ST7735_t3::dmaInterrupt2(void) {
 }
 
 
-#ifndef DEBUG_ASYNC_UPDATE
+#ifdef DEBUG_ASYNC_UPDATE
 extern void dumpDMA_TCD(DMABaseClass *dmabc);
 #endif
 
@@ -4135,7 +4133,6 @@ void ST7735_t3::process_dma_interrupt(void) {
 	// Teensy 4.x
   	//=========================================================
 	_dma_data[_spi_num]._dmatx.clearInterrupt();
-	Serial.print('.');
 
 	if (_frame_callback_on_HalfDone &&
 		(_dma_data[_spi_num]._dmatx.TCD->SADDR >= _dma_data[_spi_num]._dmasettings[1].TCD->SADDR)) 
@@ -4211,8 +4208,6 @@ void ST7735_t3::process_dma_interrupt(void) {
 				else
 				{
 					_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
-					// _dma_data[_spi_num]._dmatx =_dma_data[_spi_num]._dmasettings[0];
-					// _dma_data[_spi_num]._dmatx.enable();
 					_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel);
 				}
 				break;
@@ -4516,7 +4511,7 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
   	clearChangedRange(); // make sure the dirty range is updated.
 }			 
 
-#ifndef DEBUG_ASYNC_UPDATE
+#ifdef DEBUG_ASYNC_UPDATE
 
 void dumpDMA_TCD(DMABaseClass *dmabc)
 {
@@ -4697,7 +4692,7 @@ dumpDMASettings();
 #endif
 
 void ST7735_t3::dumpDMASettings() {
-#ifndef DEBUG_ASYNC_UPDATE
+#ifdef DEBUG_ASYNC_UPDATE
 #if defined(__MK66FX1M0__) 
 	// T3.6
 	Serial.printf("DMA dump TCDs %d\n", _dmatx.channel);
@@ -4817,26 +4812,44 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
 	uint8_t snum = 0, trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
 
+	int16_t x1=0, x2=0, y1=0, y2=0;
 	if (interrupt_every)
 	{
 		uint32_t bytesToWrite = COUNT_WORDS_WRITE*2;
 		uint16_t* psrc = _pfbtft;
 		// see if we want to and can use intermediate buffer
-		if (use_clip_rect && nullptr != _intbData)
+		if ((use_clip_rect || _updateChangedAreasOnly) && nullptr != _intbData)
 		{
 			_dma_state |= ST77XX_DMA_USE_CLIP;
 
+			if (_updateChangedAreasOnly)
+			{
+				x1 = _changed_min_x;
+				x2 = _changed_max_x + 1;
+				y1 = _changed_min_y;
+				y2 = _changed_max_y + 1;
+				clearChangedRange();
+			}
+			else
+			{
+				x1 = _displayclipx1;
+				x2 = _displayclipx2;
+				y1 = _displayclipy1;
+				y2 = _displayclipy2;
+			}
+			//Serial.printf(" [%d,%d;%d,%d] ",x1,x2,y1,y2);
+
 			// set up first mem2mem copy
-			uint32_t rows = _displayclipy2 - _displayclipy1; // number of rows to output
-			uint32_t rowBytes = (_displayclipx2 - _displayclipx1)*2;
+			uint32_t rows = y2 - y1; // number of rows to output
+			uint32_t rowBytes = (x2 - x1)*2;
 			uint32_t areaMem = rows * rowBytes;
 			if (areaMem > _intbSize) // can't do it all in one go...
 				rows = _intbSize / rowBytes; // ...do this many per frame
 			// Use _dmasettings[0] to do memory-to-memory copy
 			_dma_data[_spi_num].setDMAmem2mem(0, 
-						  _pfbtft + _displayclipy1*_width + _displayclipx1,
+						  _pfbtft + y1*_width + x1,
 						  rowBytes, rows, _width*2, _intbData,
-						  _displayclipy2 - _displayclipy1 
+						  y2 - y1 
 						 );
 			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
 
@@ -4864,7 +4877,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	
 	// tell display how much of it we're updating
 	if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
-		setAddr(_displayclipx1, _displayclipy1, _displayclipx2 - 1, _displayclipy2 - 1);
+		setAddr(x1, y1, x2 - 1, y2 - 1);
 	else
 		setAddr(0, 0, _width - 1, _height - 1); // Doing full window.
 	writecommand_last(ST7735_RAMWR);

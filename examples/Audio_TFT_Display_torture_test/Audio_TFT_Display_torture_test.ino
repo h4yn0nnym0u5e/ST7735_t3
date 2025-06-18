@@ -23,8 +23,9 @@
  * 6 = async frame buffer, IRQ every chunk
  * 7 = async frame buffer, IRQ every chunk, continuous
  * 8 = async frame buffer, clipped
+ * 9 = async frame buffer, update changed range
  */
-#define UPDATE_MODE 8
+#define UPDATE_MODE 9
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -32,7 +33,7 @@ const char* sbok="should be OK", *xbrk="expected to be broken";
 const char* auok[] = 
 {
   sbok, sbok, xbrk, xbrk, xbrk, // 0-4
-  xbrk, sbok, sbok, sbok        // 5-8
+  xbrk, sbok, sbok, sbok, sbok  // 5-9
 };
 //------------------------------------------------------------
 
@@ -381,15 +382,16 @@ void setup() {
   //tft.setClock(16000000);
     // Setup the LCD screen
 #if defined ST77XX_BLACK
-  Serial.print("ST7796_t3::init ... ");
   tft.init(320, 480);
-  Serial.println("done");
   tft.setRotation(ROTATE);         // Rotates screen to match the baseboard orientation
 #if defined(TEENSY_DEBUG_H)
   halt_cpu();
 #endif // defined(TEENSY_DEBUG_H)
   
-  tft.setDMAinterruptPriority(224); // lower the DMA interrupt priority
+  // Lower the DMA interrupt priority so audio works OK.
+  // This MUST be done before the first attempt to do
+  // an asynchronous screen update.
+  tft.setDMAinterruptPriority(224); 
 
   // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
   // 40MHz       400ns                                 ~192us
@@ -451,7 +453,8 @@ void setup() {
       tft.useFrameBuffer(true);
       break;
 
-    case 8:      
+    case 8:
+    case 9:
       {
         // two-line (480x2) intermediate buffer, 
         // i.e. 960 pixels, or 30x32 pixels, etc.
@@ -598,7 +601,7 @@ uint32_t check_writeRect(void)
   checkMicros = 0;
   static int which;
 
-  uint16_t* wr = (which&16)?save1:save2;
+  uint16_t* wr = (which&16)?save1:save2; // only change every 16 calls
   tft.writeRect(0,SQ,SQ,SQ,wr);
   which++;// = !which;
 
@@ -745,12 +748,26 @@ uint32_t check_updateClip(void)
 }
 
 //========================================================================
-#define RUN_CHECK(n) Serial.printf("Check " #n ": %d\n", check_##n())
+elapsedMicros asyncTime;
+void run_async_check(const char* name, uint32_t num)
+{
+  Serial.printf("Async check %s: %d;", name, num);
+  tft.updateChangedAreasOnly(true);
+  asyncTime = 0;
+  tft.updateScreenAsync(false,true);
+  tft.waitUpdateAsyncComplete(); // could do stuff here...
+  Serial.printf(" took %dus\n",(int) asyncTime);
+}
+
+#if 9 == UPDATE_MODE
+  #define RUN_CHECK(n)  run_async_check(#n,check_##n())
+#else
+  #define RUN_CHECK(n) Serial.printf("Check " #n ": %d\n", check_##n())
+#endif // 9 == UPDATE_MODE
 
 //=================================================================================
 //=================================================================================
 uint32_t lastCheck;
-elapsedMicros asyncTime;
 bool asyncStarted;
 
 void loop() 

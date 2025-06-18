@@ -292,7 +292,12 @@ typedef class ST7735DMA_Data_class {
 
     bool settingsOK(int snum)
     {
-      return _dmasettings[snum].TCD->NBYTES > 0;
+      // Serial.printf("BITER: %d\n", _dmasettings[snum].TCD->BITER);
+      return _dmasettings[snum].TCD->NBYTES > 0
+          && _dmasettings[snum].TCD->BITER > 0
+          && (_dmasettings[snum].TCD->BITER < 10'000'000   // insane value for "no updated area"
+            || 0 != (DMA_TCD_BITER_ELINK & _dmasettings[snum].TCD->BITER)
+             );
     }
 
     /**
