@@ -4911,7 +4911,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	_dmatx.TCD->SLAST = 0;	// Finish with it pointing to next location
 	_dmarx.transferCount(_dma_write_size_words);
 	_dma_count_remaining = _count_pixels - _dma_write_size_words;	// how much more to transfer? 
-	Serial.printf("updateScreenAsync:: - Pixels:%u Write Size:%u Remaining:%u DMA/Update: %u\n", _count_pixels, _dma_write_size_words, _dma_count_remaining, _count_pixels/_dma_write_size_words);
+	// Serial.printf("updateScreenAsync:: - Pixels:%u Write Size:%u Remaining:%u DMA/Update: %u\n", _count_pixels, _dma_write_size_words, _dma_count_remaining, _count_pixels/_dma_write_size_words);
 
 #ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
@@ -4970,12 +4970,13 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 
 bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update the screen now.
 {
+	bool result = false;
 	// Not sure if better here to check flag or check existence of buffer.
 	// Will go by buffer as maybe can do interesting things?
 	// BUGBUG:: only handles full screen so bail on the rest of it...
 	// Also bail if we are working with a hardware SPI port. 
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
-	if (!_use_fbtft || !_pspi) return false;
+	if (!_use_fbtft || !_pspi) return result;
 
 
 #ifdef DEBUG_ASYNC_LEDS
@@ -5024,7 +5025,7 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
  */		
 	// Single DMA request for whole area
 	uint32_t screenSize = _height*_width, minorBytes = 32;
-	Serial.printf("Write %d words in minor chunks of %d bytes\n", screenSize, minorBytes);
+	// Serial.printf("Write %d words in minor chunks of %d bytes\n", screenSize, minorBytes);
 	_dma_data[_spi_num].setDMAone(0,_pfbtft, screenSize*2, minorBytes);
 #ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
@@ -5055,14 +5056,17 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 
 	_dma_state |= ST77XX_DMA_ACTIVE | ST77XX_DMA_ONE_FRAME;
 
+	result = true;
 #endif	// defined(__IMXRT1062__)
+
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_1, LOW);
 #endif
-	return true;
+
 #else
-    return false;     // no frame buffer so will never start... 
+    // no frame buffer so will never start... 
 #endif // ENABLE_ST77XX_FRAMEBUFFER
+	return result;
 }	
 
 void ST7735_t3::endUpdateAsync() {

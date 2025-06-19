@@ -213,7 +213,7 @@ typedef class ST7735DMA_Data_class {
       uint32_t startMask = dma_channel_allocated_mask;
       uint32_t chMask = startMask;
 
-      Serial.printf("Allocated channels: %08X\n", startMask);
+      //Serial.printf("Allocated channels: %08X\n", startMask);
       // We want a pre-emptible channel (0-15) where the
       // corresponding non-pre-emptible one is unused, so
       // we get our own interrupt
@@ -221,7 +221,7 @@ typedef class ST7735DMA_Data_class {
       if (0xFFFF != (chMask & 0xFFFF)) // if there's a spare one
       {
         dma_channel_allocated_mask |= chMask; // mask out used
-        Serial.printf("Faked channels: %08X\n", dma_channel_allocated_mask);
+        //Serial.printf("Faked channels: %08X\n", dma_channel_allocated_mask);
         chMask = dma_channel_allocated_mask; // keep for later
       }
 
@@ -229,13 +229,13 @@ typedef class ST7735DMA_Data_class {
       if (0xFFFF != (chMask & 0xFFFF)) // if there was a spare channel before
       {
         chMask ^= dma_channel_allocated_mask; // find the just allocated one
-        Serial.printf("New channel: %08X\n", chMask);
+        //Serial.printf("New channel: %08X\n", chMask);
         // at this point we  mask BOTH channels as allocated,
         // preventing an interrupt clash but wasting a channel
         chMask |= chMask << 16;
         dma_channel_allocated_mask = startMask | chMask; // restore sane allocation mask
       }
-      Serial.printf("Allocated channels: %08X\n", dma_channel_allocated_mask);
+      //Serial.printf("Allocated channels: %08X\n", dma_channel_allocated_mask);
     }
 
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
@@ -709,12 +709,13 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  updateScreen(void);       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
+#if defined(__IMXRT1062__)
   void  setDMAinterruptPriority(int prio = 128) 
   { 
     ISRpriority = prio;
     initDMASettings(); // ensure DMA is initialised and channel allocated
     uint8_t ch = _dma_data[_spi_num]._dmatx.channel;
-    Serial.printf("Using DMA channel %d; priority is %d\n",ch,NVIC_GET_PRIORITY((ch & 15) + IRQ_DMA_CH0));
+    //Serial.printf("Using DMA channel %d; priority is %d\n",ch,NVIC_GET_PRIORITY((ch & 15) + IRQ_DMA_CH0));
   }
   void  forceDMAinterruptPriority(int prio = 128) 
   { 
@@ -722,6 +723,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     _forceInterrupt(prio); 
   }
   void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
+#endif // defined(__IMXRT1062__)
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
   void  dumpDMASettings();
@@ -868,10 +870,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     if (isPastMaxTransaction())
     {
       result = true;
+
+#if defined(__IMXRT1062__)
       while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
         ;
       while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
         ;
+#endif // defined(__IMXRT1062__)
+
       waitTransmitComplete();
       if (x0 < 0) // no need for setAddr() call on exit
       {
