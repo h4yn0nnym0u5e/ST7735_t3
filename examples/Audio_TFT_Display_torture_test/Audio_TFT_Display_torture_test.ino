@@ -25,17 +25,22 @@
  *  8 = async frame buffer, clipped
  *  9 = async frame buffer, update changed range
  * 10 = async frame buffer in PSRAM, update changed range
+ * 11 = async frame buffer, update changed range, continuous
  */
-#define UPDATE_MODE 10
+#define UPDATE_MODE 11
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
-const char* sbok="should be OK", *xbrk="expected to be broken";
+const char* sbok="should be OK", 
+           *xbrk="expected to be broken",
+           *oops="says 'you're a numpty'";
 const char* auok[] = 
 {
   sbok, sbok, xbrk, xbrk, xbrk, // 0-4
   xbrk, sbok, sbok, sbok, sbok, // 5-9
-  sbok
+  sbok, sbok,                   // 10-11
+
+  oops, oops, oops, oops, oops, // oh dear...
 };
 //------------------------------------------------------------
 
@@ -404,15 +409,15 @@ void setup() {
   // Lower the DMA interrupt priority so audio works OK.
   // This MUST be done before the first attempt to do
   // an asynchronous screen update.
-  tft.setDMAinterruptPriority(224); 
+  tft.setAsyncInterruptPriority(224); 
 
   // 16MHz SPI is ~1us / pixel, so a 480 pixel line is ~480us
   // 40MHz       400ns                                 ~192us
   /*/
   tft.setSPISpeed(40'000'000);
-  tft.setMaxDMAlines(5);   //  64 updates of 5 lines each, ~960us
+  tft.setMaxAsyncLines(5);   //  64 updates of 5 lines each, ~960us
   /*/
-  tft.setMaxDMAlines(2);   // 160 updates of 2 lines each, ~960us
+  tft.setMaxAsyncLines(2);   // 160 updates of 2 lines each, ~960us
   //*/
 #else  
   tft.begin();
@@ -464,6 +469,7 @@ void setup() {
       // fallthrough
     case 8:
     case 9:
+    case 11:
       {
         // two-line (480x2) intermediate buffer, 
         // i.e. 960 pixels, or 30x32 pixels, etc.
@@ -854,6 +860,32 @@ void loop()
         asyncTime = 0;
         msecs = 999999;
         break;
+
+      case 11:
+          // update whole screen to start with
+        tft.updateScreenAsync(false,true);
+        tft.waitUpdateAsyncComplete(); // wait for that to finish
+        delay(4);
+
+        // now start a continuous update of part of the screen
+        //tft.updateChangedAreasOnly(true);
+        tft.setClipRect(SQ*3, SQ+96, 80, 80);
+        //RUN_CHECK(writeRect4BPP);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_BLACK);
+        Serial.printf("Async start was %sOK\n",
+          tft.updateScreenAsync(true,true,true)?"":"not ");
+
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_RED); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_YELLOW); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_GREEN); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_CYAN); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_BLUE); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_MAGENTA); tft.flushFramebufferCache(); delay(1);
+        tft.fillRect(SQ*3, SQ+96, 80, 80, 0xDEAD); tft.flushFramebufferCache(); delay(1);
+
+        asyncStarted = true;
+        asyncTime = 0;
+        break;
           
 
 #if  defined ST77XX_BLACK
@@ -897,26 +929,48 @@ void loop()
     if (!forceDone)
     {
       forceDone = true;
-      tft.forceDMAinterruptPriority(224); // lower the DMA interrupt priority
+      tft.forceAsyncInterruptPriority(224); // lower the DMA interrupt priority
     }
 #endif // defined(DMA_DCHPRI_DPA)    
 
     if (tft.asyncUpdateActive())
     {
-      if (3 == UPDATE_MODE || 7 == UPDATE_MODE)
+      switch (UPDATE_MODE)
       {
-        elapsedMillis t = 0;
-        do
+        default: break;
+
+        case 3:
+        case 7:
+        case 11:
         {
-          delay(25);
-          RUN_CHECK(fillRect);
-          delay(25);
-        } while (t < 240);
-        
-        t = 0;
-        tft.endUpdateAsync();
-        tft.waitUpdateAsyncComplete();
-        Serial.printf("Took %dms to stop async update\n", (int) t);
+          elapsedMillis t = 0;
+          int32_t fc = tft.frameCount();
+
+          while (t < 500) // for half a second
+          {
+            // wait for current (partial) update to complete
+            while (fc == tft.frameCount())
+            {
+              delay(1);
+              if (t >= 500)
+                break;
+            }
+
+            if (fc > tft.frameCount()) // whole screen / area has been updated
+              RUN_CHECK(writeRect4BPP);
+
+            fc = tft.frameCount();
+            //tft.flushFramebufferCache(); // not needed?
+          }
+
+          t = 0;
+          tft.endUpdateAsync();
+          tft.waitUpdateAsyncComplete();
+          Serial.printf("Took %dms to stop async update\n", (int) t);
+          tft.updateChangedAreasOnly(false); // just in case
+          asyncStarted = false;
+        }
+          break;
       }
 
 #if defined ST77XX_BLACK
@@ -959,9 +1013,10 @@ void loop()
       {
         asyncStarted = false;
         if (3 != UPDATE_MODE // timer makes no sense for continuous update
-        && 7 != UPDATE_MODE)
+         && 7 != UPDATE_MODE)
           Serial.printf("Async update took %dus\n",(uint32_t) asyncTime);
-        delay(500);
+        if (7 != UPDATE_MODE)          
+          delay(500);
       }
     }
   }

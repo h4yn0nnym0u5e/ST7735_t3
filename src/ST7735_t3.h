@@ -200,12 +200,18 @@ typedef class ST7735DMA_Data_class {
     }
   public:
     DMASetting      _dmasettings[nSettings];
-    DMAChannel      _dmatx;
+    // We allocate our own DMA channel, despite the fact that the
+    // SPI library already has two of its own. This is probably 
+    // sensible, as we do fairly weird things with ours, and the
+    // SPI library doesn't really cater for that.
+    DMAChannel      _dmatx{false}; // don't allocate channel on construction
 
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
     int frameCount{-1}; // number of frames needed for a complete update
-    uint32_t totalRows; // total rows (left) to do in async update
+    uint32_t remainingRows; // remaining rows to do in async update
+    uint32_t totalRows;     // rows in async update: used for continuous updates
+    uint32_t maxRows;       // max rows the intermediate buffer can hold
     bool asyncEnded; // this is a bit of a hack - fix later...
 
     void begin(void)
@@ -318,13 +324,23 @@ typedef class ST7735DMA_Data_class {
                        uint32_t rows,         //!< rows to copy
                        uint32_t screenRowBytes,  //!< total bytes in one screen row
                        uint16_t* _intb,       //!< intermediate buffer
-                       uint32_t tRows)        //!< total rows we want to output
+                       uint32_t tRows,        //!< total rows we want to output
+                       bool initial = true    //!< initial call
+                      )       
     {
       DMASetting& sb = _dmasettings[snum];
       uint8_t channel = _dmatx.channel;
 
-      totalRows = tRows - rows; // record rows remaining to do after this update
-
+      remainingRows = tRows - rows; // record rows remaining to do after this update
+      if (initial) // store 
+      {
+        maxRows = rows;
+        totalRows = tRows;
+      }
+//*      
+Serial.printf("%d of %d rows of %d bytes from %08X to %08X; %d bytes per row\n",
+              rows, tRows, bytesPerRow, (uint32_t) _pfbtft, (uint32_t)_intb,screenRowBytes);
+//*/              
       // set up source: interleaved rows from "frame buffer"
       sb.TCD->SADDR = _pfbtft;
       sb.TCD->SOFF  = 2; // increment by 2 after each read
@@ -368,20 +384,53 @@ typedef class ST7735DMA_Data_class {
 
       uint32_t rows = DMA_TCD_BITER_ELINKYES_BITER(sb.TCD->BITER);
       uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
-      if (totalRows > 0) // we have something left to output
+      if (remainingRows > 0) // we have something left to output
       {
         uint32_t screenRowBytes = sb.TCD->SLAST; // bytes per screen row
         uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR + screenRowBytes*rows); // next FB address
 
-        if (rows > totalRows) // might be the last copy, and thus smaller
-          rows = totalRows;
+        if (rows > remainingRows) // might be the last copy, and thus smaller
+          rows = remainingRows;
 
-        setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, (uint16_t*) sb.TCD->DADDR, totalRows);
+        // set up anew: this is not the initial setup!
+        setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, 
+                      (uint16_t*) sb.TCD->DADDR, remainingRows, false);
       }
       else 
         rows = 0; // nothing more to do
 
       return rows * bytesPerRow; // return number of bytes to be copied / output
+    }
+
+    /*
+     * Reset finished copier TCD to its start state. 
+     *
+     * This is used for continuous updates. 
+     * \return number of rows originally specified
+     */
+    uint32_t resetDMAmem(int snum, uint32_t& opRows)
+    {
+      DMASetting& sb = _dmasettings[snum];
+digitalWriteFast(1,1);
+      uint32_t lastRows = DMA_TCD_BITER_ELINKYES_BITER(sb.TCD->BITER); // rows in the last chunk
+      uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
+      uint32_t rows = maxRows; // last copy was probably smaller than we have room for: back to max
+      uint32_t screenRowBytes = sb.TCD->SLAST; // bytes per screen row
+      uint16_t* dst = (uint16_t*) sb.TCD->DADDR;
+
+      // wind back the FB address
+      uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR 
+                            - screenRowBytes*(totalRows-lastRows));
+
+Serial.printf("resetDMAmem: SADDR is %08X\n",sb.TCD->SADDR);
+
+      // set up anew: this is not the initial setup!
+      setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, 
+                    dst, totalRows, true);
+
+      opRows = maxRows; // max rows we can output                    
+digitalWriteFast(1,0);
+      return totalRows; // total rows to output
     }
 
 
@@ -441,7 +490,7 @@ typedef class ST7735DMA_Data_class {
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
     void setFrameCount(int fc) { frameCount = fc; }
     int  getFrameCount(void)   { return frameCount; }
-    int  getRemainingRows(void)   { return totalRows; }
+    int  getRemainingRows(void)   { return remainingRows; }
     int8_t getDMAsettingsCount(void) { return nSettings; }
 } ST7735DMA_Data;
 #endif
@@ -710,19 +759,24 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
 #if defined(__IMXRT1062__)
-  void  setDMAinterruptPriority(int prio = 128) 
+  void flushFramebufferCache(void)
+  {
+    if ((uint32_t)_pfbtft >= 0x20200000u)
+      arm_dcache_flush(_pfbtft, _count_pixels*2);
+  }
+  void setAsyncInterruptPriority(int prio = 128) 
   { 
     ISRpriority = prio;
     initDMASettings(); // ensure DMA is initialised and channel allocated
-    uint8_t ch = _dma_data[_spi_num]._dmatx.channel;
-    //Serial.printf("Using DMA channel %d; priority is %d\n",ch,NVIC_GET_PRIORITY((ch & 15) + IRQ_DMA_CH0));
+    // uint8_t ch = _dma_data[_spi_num]._dmatx.channel;
+    // Serial.printf("Using DMA channel %d; priority is %d\n",ch,NVIC_GET_PRIORITY((ch & 15) + IRQ_DMA_CH0));
   }
-  void  forceDMAinterruptPriority(int prio = 128) 
+  void  forceAsyncInterruptPriority(int prio = 128) 
   { 
     initDMASettings(); // ensure DMA is initialised and channel allocated
     _forceInterrupt(prio); 
   }
-  void  setMaxDMAlines(int lines) { _setMaxDMAlines(lines); }
+  void  setMaxAsyncLines(int lines) { _setMaxAsyncLines(lines); }
 #endif // defined(__IMXRT1062__)
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // Turn of the continueous mode fla
@@ -740,9 +794,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  freeFrameBuffer(void) {return;}      // explicit call to release the buffer
   void  updateScreen(void) {return;}       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
-  void  setDMAinterruptPriority(int prio = 128) {return;}
-  void  forceDMAinterruptPriority(int prio = 128) {return;}
-  void  setMaxDMAlines(int lines) { return; }
+  void  setAsyncInterruptPriority(int prio = 128) {return;}
+  void  forceAsyncInterruptPriority(int prio = 128) {return;}
+  void  setMaxAsyncLines(int lines) { return; }
   void  waitUpdateAsyncComplete(void) {return;}
   void  endUpdateAsync() {return;}      // Turn of the continueous mode fla
   void  dumpDMASettings() {return;}
@@ -859,6 +913,18 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   bool yieldInMidTransaction; // if true, does a yield() in mid-transaction break
   bool isPastMaxTransaction(void) { return ARM_DWT_CYCCNT - cyccntAtBegin > maxTransactionCyccnt; } // is it time to break the transaction?
 
+  void waitFIFOempty(void)
+  {
+//digitalWriteFast(2,1);
+#if defined(__IMXRT1062__)
+    while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
+      ;
+    while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
+      ;
+#endif // defined(__IMXRT1062__)
+//digitalWriteFast(2,0);
+    }
+
   // Do a check for elapsed time since beginSPITransaction(), and if needed
   // end it and re-begin. If we're given the co-ordinates then we
   // re-configure the output area, as ending the transaction will have lost it.
@@ -867,18 +933,16 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     bool result = false;
     bool inISR = (SCB_ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
 
+//digitalWriteFast(1,1);
+//digitalWriteFast(2,1);
     if (isPastMaxTransaction())
     {
       result = true;
 
-#if defined(__IMXRT1062__)
-      while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
-        ;
-      while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
-        ;
-#endif // defined(__IMXRT1062__)
-
+//digitalWriteFast(2,0);
+      waitFIFOempty();
       waitTransmitComplete();
+//digitalWriteFast(2,1);
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
@@ -895,6 +959,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         writecommand(ST7735_RAMWR);
       }
     }
+//digitalWriteFast(1,0);
+//digitalWriteFast(2,0);
  
     return result;
   }
@@ -958,7 +1024,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 #define TCR_MASK  (LPSPI_TCR_PCS(3) | LPSPI_TCR_FRAMESZ(31) | LPSPI_TCR_CONT | LPSPI_TCR_RXMSK )
 #endif  
   void maybeUpdateTCR(uint32_t requested_tcr_state) {
-  if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
+    if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
       bool dc_state_change = (_spi_tcr_current & LPSPI_TCR_PCS(3)) != (requested_tcr_state & LPSPI_TCR_PCS(3));
       _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
       // only output when Transfer queue is empty.
@@ -1114,7 +1180,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
    * height, so 2, 3, 4, 5, 6, 8, 10 ... is OK for a 240-high display,
    * and 2, 4, 5, 8, 10 ... OK for 320-high. 
    */
-  void _setMaxDMAlines(int n)
+  void _setMaxAsyncLines(int n)
   {
     constexpr int DMAmaxWords = 32767;
     COUNT_WORDS_WRITE = n * _width;

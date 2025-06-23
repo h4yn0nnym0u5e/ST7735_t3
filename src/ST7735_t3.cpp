@@ -4132,10 +4132,13 @@ void ST7735_t3::process_dma_interrupt(void) {
 	//=========================================================
 	// Teensy 4.x
   	//=========================================================
-	_dma_data[_spi_num]._dmatx.clearInterrupt();
+	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
+	DMAChannel&     dmatx = dmaData._dmatx;
 
+	dmatx.clearInterrupt();
+digitalWriteFast(0,1);
 	if (_frame_callback_on_HalfDone &&
-		(_dma_data[_spi_num]._dmatx.TCD->SADDR >= _dma_data[_spi_num]._dmasettings[1].TCD->SADDR)) 
+		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{
 		_dma_sub_frame_count = 1; // set as partial frame.
 		if (_frame_complete_callback)
@@ -4155,10 +4158,11 @@ void ST7735_t3::process_dma_interrupt(void) {
 		{
 			// if continuous mode and past last frame, reset frame count
 			if ((_dma_state & ST77XX_DMA_CONT) != 0 
-			 && _dma_frame_count >= _dma_data[_spi_num].getFrameCount())
+			 && (_dma_state & ST77XX_DMA_USE_CLIP) == 0 
+			 && _dma_frame_count >= dmaData.getFrameCount())
 				_dma_frame_count = 0;
 
-			if ( _dma_frame_count < _dma_data[_spi_num].getFrameCount() // not done all frames 
+			if ( _dma_frame_count < dmaData.getFrameCount() // not done all frames 
 			 || (_dma_state & ST77XX_DMA_USE_CLIP) != 0) // or using clipping rectangle (self-terminating)
 			{
 				uint16_t x0, y0, x1, y1;
@@ -4167,13 +4171,13 @@ void ST7735_t3::process_dma_interrupt(void) {
 				// figure out the new window height
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{					
-					y0 = y1 + 1 - _dma_data[_spi_num].getRemainingRows();
+					y0 = y1 + 1 - dmaData.getRemainingRows();
 				}
 				else
 				{					
 					int linesPerFrame = COUNT_WORDS_WRITE / (x1 - x0 + 1);
 					y0 = y1 + 1 - // advance start by lines already output
-						(_dma_data[_spi_num].getFrameCount() - _dma_frame_count)
+						(dmaData.getFrameCount() - _dma_frame_count)
 							*linesPerFrame; 
 				}
 
@@ -4186,53 +4190,75 @@ void ST7735_t3::process_dma_interrupt(void) {
 				// most of the DMA setup is already done - just change stuff and re-enable
 				if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 				{
-					_dma_data[_spi_num]._dmatx.clearComplete();
+					dmatx.clearComplete();
 
-					uint32_t bytesToOutput = _dma_data[_spi_num].setDMAmemNext(0);
+					uint32_t bytesToOutput = dmaData.setDMAmemNext(0);
+
+					// if we've done the clip area but are in  
+					// continuous mode, re-start the output
+					if (0 == bytesToOutput && 0 != (_dma_state & ST77XX_DMA_CONT))
+					{
+						waitFIFOempty();
+
+						uint32_t opRows;
+						uint32_t totalRows = dmaData.resetDMAmem(0,opRows);
+
+						// x1 and y1 are inclusive, hence +1
+						bytesToOutput = opRows * (x1+1 - x0) * 2;
+						y0 = y1+1 - totalRows;
+						setAddr(x0, y0, x1, y1);
+						writecommand_last(ST7735_RAMWR);
+						maybeUpdateTCR(_tcr_dc_not_assert 
+									| LPSPI_TCR_FRAMESZ(15) 
+									| LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
+	
+Serial.printf("window reset to %d,%d,%d,%d; %d bytes per chunk\n",x0, y0, x1, y1,bytesToOutput);
+						_dma_frame_count = 0;
+					}
+
 					if (bytesToOutput > 0) // more to output - do rest of preparation
 					{
-						_dma_data[_spi_num].chainDMA(0, 1);
-						_dma_data[_spi_num].setDMAone(1, _intbData, bytesToOutput, 2);
+						dmaData.chainDMA(0, 1);
+						dmaData.setDMAone(1, _intbData, bytesToOutput, 2);
 #ifdef DEBUG_ASYNC_UPDATE
 	dumpDMASettings();
 #endif
-						_dma_data[_spi_num].startDMA(DMAMUX_SOURCE_MANUAL);
+						dmaData.startDMA(DMAMUX_SOURCE_MANUAL);
 					}
 					else
 					{
-						_dma_data[_spi_num]._dmatx.disable();
-						_dma_data[_spi_num].asyncEnded = true; // finished
+						dmatx.disable();
+						dmaData.asyncEnded = true; // finished
 					}
-					
 				}
 				else
 				{
-					_dma_data[_spi_num].setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
-					_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel);
+					dmaData.setDMAone(0,_pfbtft + COUNT_WORDS_WRITE*_dma_frame_count, COUNT_WORDS_WRITE*2, 2);
+					dmaData.startDMA(_spi_hardware->tx_dma_channel);
 				}
-				break;
+				break; // exit do{} "loop" - we're done
 			}
 			else
-				_dma_data[_spi_num].asyncEnded = true;
+				dmaData.asyncEnded = true;
 		}
 
 		// chained DMA has interrupted: 
-		if (_dma_frame_count+1 >= _dma_data[_spi_num].getFrameCount() // frame is last one...
+		if (_dma_frame_count+1 >= dmaData.getFrameCount() // frame is last one...
 			&& (_dma_state & ST77XX_DMA_CONT) == 0 // ...not continuous - finish after this frame
-			&& _dma_data[_spi_num].isActive()
+			&& dmaData.isActive()
 			) 
 		{
-			_dma_data[_spi_num]._dmatx.disableOnCompletion(); // ...stop when it's done
-			_dma_data[_spi_num].asyncEnded = true;
+			dmatx.disableOnCompletion(); // ...stop when it's done
+			dmaData.asyncEnded = true;
 		}
 		else if ((_dma_state & ST77XX_DMA_ONE_FRAME) != 0)
 		{
-			_dma_data[_spi_num].asyncEnded = true;
+			dmaData.asyncEnded = true;
 		}
 		else
 		{
 			// set recently-completed frame ready for next chain
-			_dma_data[_spi_num].setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
+			dmaData.setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
 		}
 	} while (false);
 	
@@ -4240,9 +4266,10 @@ void ST7735_t3::process_dma_interrupt(void) {
     _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
     //if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
-	if (!_dma_data[_spi_num].isActive())
+	if (!dmaData.isActive())
 	{
-      // We are in single refresh mode and we've done all frames,
+digitalWriteFast(2,1);
+		// We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
       // _pimxrt_spi->SR);
@@ -4253,7 +4280,7 @@ void ST7735_t3::process_dma_interrupt(void) {
       while (_pimxrt_spi->SR & LPSPI_SR_MBF)
         ; // wait until this one is complete
 
-      _dma_data[_spi_num]._dmatx.clearComplete();
+      dmatx.clearComplete();
       // Serial.println("Restore FCR");
       _pimxrt_spi->FCR = LPSPI_FCR_TXWATER(
           15);              // _spi_fcr_save;	// restore the FSR status...
@@ -4273,7 +4300,8 @@ void ST7735_t3::process_dma_interrupt(void) {
       _dma_state &= ~ST77XX_DMA_ACTIVE;
       _dmaActiveDisplay[_spi_num] =
           0; // We don't have a display active any more...
-    } else {
+digitalWriteFast(2,0);
+		} else {
       // Lets try to flush out memory
       if (_frame_complete_callback)
         (*_frame_complete_callback)();
@@ -4281,6 +4309,7 @@ void ST7735_t3::process_dma_interrupt(void) {
         arm_dcache_flush(_pfbtft, _count_pixels*2);
     }
   }
+digitalWriteFast(0,0);  
   asm("dsb");
 #else
 	//=========================================================
@@ -4604,7 +4633,7 @@ void	ST7735_t3::initDMASettings(void)
 
 #elif defined(__IMXRT1062__)  // Teensy 4.x
 	if (_dma_data[_spi_num].getFrameCount() < 0) // not already set
-		_setMaxDMAlines(_height);
+		_setMaxAsyncLines(_height);
 	// First time we init...
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 
@@ -4806,8 +4835,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	// BUGBUG try first not worry about continuous or not.
 	// Start off remove disable on completion from both...
 	// it will be the ISR that disables it...
-	if ((uint32_t)_pfbtft >= 0x20200000u)
-		arm_dcache_flush(_pfbtft, _count_pixels*2);
+	flushFramebufferCache();
 
 	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
 	uint8_t snum = 0, trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
@@ -4877,7 +4905,10 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	
 	// tell display how much of it we're updating
 	if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
+	{
 		setAddr(x1, y1, x2 - 1, y2 - 1);
+		Serial.printf("window set to %d,%d,%d,%d\n",x1, y1, x2 - 1, y2 - 1);		
+	}
 	else
 		setAddr(0, 0, _width - 1, _height - 1); // Doing full window.
 	writecommand_last(ST7735_RAMWR);

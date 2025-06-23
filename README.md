@@ -85,11 +85,11 @@ The library supports most if not all display resolutions:
 Frame Buffer
 ------------
 
-The teensy 4.x, 3.6 and 3.5 have a lot more memory than previous Teensy processors, so on these boards, we borrowed some ideas from the ILI9341_t3DMA library and added code to be able to use a logical Frame Buffer.  
+The Teensy 4.x, 3.6 and 3.5 have a lot more memory than previous Teensy processors, so on these boards, we borrowed some ideas from the ILI9341_t3DMA library and added code to be able to use a logical Frame Buffer.  
 
 Since the smaller ST7735 and maybe ST7789 displays have fewer pixels, you can on some of them enable a frame buffer on a T3.2 as well. I believe in this case I did add support for Async updates as well. 
 
-To enable this we added a couple of API's 
+To enable this we added a couple of APIs 
 
 ```c++
     uint8_t useFrameBuffer(boolean b) - if b non-zero it will allocate memory and start using
@@ -101,19 +101,19 @@ To enable this we added a couple of API's
 Asynchronous Update support (Frame buffer)
 ------------------------
 
-The code now has support to use DMA for Asynchronous updates of the screen.  You can choose to do the updates once or in continuous mode.  Note: I mainly use the oneshot as we prefer more control on when the screen updates which helps to minimize things like flashing and tearing. 
+The code now has support to use DMA for asynchronous updates of the screen.  You can choose to do the updates once or in continuous mode.  Note: I mainly use the oneshot, as we prefer more control on when the screen updates which helps to minimize things like flashing and tearing. 
 Some of the New methods for this include: 
 
 ```c++
-	bool	updateScreenAsync(bool update_cont = false); - Starts an update either one shot or continuous
-	void	waitUpdateAsyncComplete(void);  - Wait for any active update to complete
-	void	endUpdateAsync();			 - Turn of the continuous mode.
-	boolean	asyncUpdateActive(void)      - Lets you know if an async operation is still active
+	bool	updateScreenAsync(bool update_cont = false); // Starts an update either one shot or continuous
+	void	waitUpdateAsyncComplete(void);  // Wait for any active update to complete
+	void	endUpdateAsync();			 // Turn off the continuous mode.
+	boolean	asyncUpdateActive(void)      // Lets you know if an async operation is still active
 ```
 
 Additional APIs
 ---------------
-In addition, this library now has some of the API's and functionality that has been requested in a pull request.  In particular it now supports, the ability to set a clipping rectangle as well as setting an origin that is used with the drawing primitives.   These new API's include:
+In addition, this library now has some of the APIs and functionality that has been requested in a pull request.  In particular it now supports the ability to set a clipping rectangle, as well as setting an origin that is used with the drawing primitives.   These new APIs include:
 
 ```c++
 	void setOrigin(int16_t x = 0, int16_t y = 0); 
@@ -154,6 +154,53 @@ Discussion regarding this optimized version:
 ==========================
 
 https://forum.pjrc.com/threads/57015-ST7789_t3-(part-of-ST7735-library)-support-for-displays-without-CS-pin?highlight=st7735
+
+
+Mid-transaction breaks (Teensy 4.x only) 
+=========
+A number of the drawing primitives take a signifcant time to execute, particularly at conservative SPI bus speed (e.g. 16MHz). Because claiming the SPI bus can interfere with other system activity, this driver has been extended to allow for "mid-transaction breaks", whereby the SPI transaction in progress is ended, `yield()` may be called, and the transaction resumed. This will allow any pending interrupt-driven access to the SPI bus to be executed.
+
+Two API calls control this:
+```c++
+	void setMaxTransaction(uint32_t us); // approximate maximum time between breaks
+	void enableYieldInMidTransaction(bool en); // true to call yield() in the break
+```
+
+The maximum transaction time is only approximate, because checks to see if the time has expired only occur at points when it is straightforward to suspend and resume the drawing. For example, with large character drawing, this is done after every character line. 
+
+The default is to break every 1000us, but _not_ to `yield()`.
+
+Extended asynchronous updates (Teensy 4.x only)
+=====
+Following on from the above, it is apparent that asynchronous updates will also take a long time to execute, especially for large displays. Further / updated API calls are provided to mitigate this:
+```c++
+  void setMaxAsyncLines(int lines); // max lines to update between interrupts
+  void setAsyncInterruptPriority(int prio); // set interrupt priority
+  void forceAsyncInterruptPriority(int prio); // force-set interrupt priority
+	// call to trigger async screen update
+  bool  updateScreenAsync(bool update_cont = false, 	  // continuous updates
+							bool interrupt_every = false, // interrupt after every set of lines
+							bool use_clip_rect = false);  // only update part of the display
+
+  uint8_t useIntermediateBuffer(size_t s); // allocate intermediate buffer
+  uint8_t useIntermediateBuffer(void* m, size_t s) // use provided intermediate buffer
+  void  freeIntermediateBuffer(void);  // call to release the buffer							
+```
+By setting the update to interrupt every few lines of output (`interrupt_every=true`), a mid-transaction break can occur if needed (see previous section). Note that in this case the break occurs inside an interrupt service routine, so `yield()` will _not_ be called, even if enabled.
+
+To update only part of the display (`use_clip_rect=true`), _either_ set the desired area using `setClipRect()`, _or_  set `updateChangedAreasOnly(true)`; if you do both, then the latter limits will be used. In this case an intermediate buffer is _required_. This need not be very large: at a SPI speed of 16MHz it takes 1us to write one pixel (16 bits), so a 2kB buffer would take just over 1ms to write, which is a reasonable polling interval for the mid-transaction breaks.
+
+Points to note:
+
+* the break can _only_ take effect if the pending interrupt has a _higher_ priority than the async interrupt (_lower_ priority number)
+* some use cases will only work with a revised `DMAChannel` driver which is not part of Teensyduino up to at least 1.59
+* with the revised driver, it is possible that attempts to set the interrupt priority will fail unless `forceAsyncInterruptPriority()` is used
+
+For example, the audio library uses an interrupt of priority 208; the async priority _must_ therefore be set to 224 or 240 to allow audio playback from SPI SD to work alongside async screen updates.
+
+### Links ###
+[Start of mid-transaction break discussion in existing ST7796 thread](https://forum.pjrc.com/index.php?threads/st7796-teensyduino-support.76510/post-358123)<br>
+[Revised DMAChannel thread](https://forum.pjrc.com/index.php?threads/issues-with-dmachannels.76608/)
 
 
 Adafruit library info
