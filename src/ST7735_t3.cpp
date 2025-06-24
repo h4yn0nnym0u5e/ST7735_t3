@@ -4150,11 +4150,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 	bool userCallbackNeeded = false;
 
 	dmatx.clearInterrupt();
-digitalWriteFast(0,1);
-digitalWriteFast(1,1);
 	if (0 != (_dma_state & ST77XX_DMA_IRQ_EVERY)) // if not chained
 		waitFIFOempty(); // defensive! About 1.8us...
-digitalWriteFast(1,0);
 	if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{

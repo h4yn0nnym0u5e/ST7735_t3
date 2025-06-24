@@ -297,13 +297,14 @@ void makeSave(uint16_t* sv, int n)
   //delay(500);
 }
 
-void fillGrid(void)
+
+void fillGrid(int pitch, uint16_t colour = ST77XX_WHITE)
 {
-  for (int i=0;i<tft.width();i+=32)
-    tft.drawLine(i,0,i,tft.height()-1,ST77XX_WHITE);
-  for (int i=0;i<tft.height();i+=32)
-    tft.drawLine(0,i,tft.width()-1,i,ST77XX_WHITE);
-  tft.drawRect(0,0,tft.width(),tft.height(),ST77XX_WHITE);
+  for (int i=0;i<tft.width();i+=pitch)
+    tft.drawLine(i,0,i,tft.height()-1,colour);
+  for (int i=0;i<tft.height();i+=pitch)
+    tft.drawLine(0,i,tft.width()-1,i,colour);
+  tft.drawRect(0,0,tft.width(),tft.height(),colour);
 }
 
 
@@ -448,7 +449,7 @@ void setup() {
   tft.setTextWrap(false);
 
   tft.fillScreen(ST7735_BLACK);
-  fillGrid();
+  fillGrid(40);
 
 
   tft.useFrameBuffer(true);
@@ -499,7 +500,7 @@ void setup() {
     case 0:
       break;
   }
-  fillGrid();
+  fillGrid(40);
 
   printSetup();
   
