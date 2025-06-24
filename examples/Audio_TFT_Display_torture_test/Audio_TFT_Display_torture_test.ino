@@ -27,7 +27,7 @@
  * 10 = async frame buffer in PSRAM, update changed range
  * 11 = async frame buffer, update changed range, continuous
  */
-#define UPDATE_MODE 7
+#define UPDATE_MODE 11
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -980,9 +980,9 @@ void loop()
         case 7:
         case 11:
         {
-          elapsedMillis t = 0;
+          elapsedMicros t = 0;
 
-          while (t < 500) // for half a second
+          while (t < 100'000) // for 0.1s (~12 frames at 16MHz)
           {
             // use callback to flag when frame is done
             if (frameCompleted)
@@ -997,10 +997,13 @@ void loop()
 
           while (!frameCompleted)
             delay(1); // a bit of time to allow last update to appear
+          Serial.print("Stop async update: ");
           t = 0;
+    digitalWriteFast(2,1);
           tft.endUpdateAsync();
           tft.waitUpdateAsyncComplete();
-          Serial.printf("Took %dms to stop async update\n", (int) t);
+    digitalWriteFast(2,0);
+          Serial.printf("took %dus\n", (int) t);
           tft.updateChangedAreasOnly(false); // just in case
           tft.setClipRect(); // ditto
           asyncStarted = false;

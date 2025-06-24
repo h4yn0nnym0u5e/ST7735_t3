@@ -4150,6 +4150,9 @@ void ST7735_t3::process_dma_interrupt(void) {
 
 	dmatx.clearInterrupt();
 digitalWriteFast(0,1);
+digitalWriteFast(1,1);
+	waitFIFOempty(); // defensive! About 1.8us...
+digitalWriteFast(1,0);
 	if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{
@@ -4213,10 +4216,10 @@ digitalWriteFast(0,1);
 
 					// if we've done the clip area but are in  
 					// continuous mode, re-start the output
-					if (0 == bytesToOutput && 0 != (_dma_state & ST77XX_DMA_CONT))
+					if (0 == bytesToOutput 
+					 && 0 != (_dma_state & ST77XX_DMA_CONT)
+					   )
 					{
-						waitFIFOempty();
-
 						uint32_t opRows;
 						uint32_t totalRows = dmaData.resetDMAmem(0,opRows);
 
@@ -4234,7 +4237,9 @@ digitalWriteFast(0,1);
 						userCallbackNeeded = true;
 					}
 
-					if (bytesToOutput > 0) // more to output - do rest of preparation
+					if (bytesToOutput > 0 // more to output - do rest of preparation
+					 && 0 == (_dma_state & ST77XX_DMA_ONE_FRAME) // unless we've been stopped
+					   )
 					{
 						dmaData.chainDMA(0, 1);
 						dmaData.setDMAone(1, _intbData, bytesToOutput, 2);
@@ -4328,9 +4333,9 @@ digitalWriteFast(2,0);
       // Lets try to flush out memory
       if (_frame_complete_callback)
         (*_frame_complete_callback)();
-      else */ if ((uint32_t)_pfbtft >= 0x20200000u)
+      else  if ((uint32_t)_pfbtft >= 0x20200000u)
         arm_dcache_flush(_pfbtft, _count_pixels*2);
-		
+		*/
     }
   }
 
@@ -5130,18 +5135,19 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 
 void ST7735_t3::endUpdateAsync() {
 	// make sure it is on
-	#ifdef ENABLE_ST77XX_FRAMEBUFFER
+#ifdef ENABLE_ST77XX_FRAMEBUFFER
 	if (_dma_state & ST77XX_DMA_CONT) {
 		_dma_state &= ~ST77XX_DMA_CONT; // Turn off the continuous mode
 #if defined(__MK66FX1M0__)
 		_dmasettings[_spi_num][_cnt_dma_settings].disableOnCompletion();
 #endif
 #if defined(__IMXRT1062__)
-   	_dma_data[_spi_num].endUpdate(); // stop after current chunk
-	_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
+		_dma_state |= ST77XX_DMA_ONE_FRAME; // pretend it was a one-frame transaction
+		//_dma_data[_spi_num].endUpdate(); // stop after current chunk
+		//_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
 #endif
 	}
-	#endif
+#endif // ENABLE_ST77XX_FRAMEBUFFER
 }
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
