@@ -4151,7 +4151,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 	dmatx.clearInterrupt();
 digitalWriteFast(0,1);
 digitalWriteFast(1,1);
-	waitFIFOempty(); // defensive! About 1.8us...
+	if (0 != (_dma_state & ST77XX_DMA_IRQ_EVERY)) // if not chained
+		waitFIFOempty(); // defensive! About 1.8us...
 digitalWriteFast(1,0);
 	if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
@@ -4869,6 +4870,8 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	// Start off remove disable on completion from both...
 	// it will be the ISR that disables it...
 	flushFramebufferCache();
+	if (update_cont)
+		interrupt_every = true; // so we can tell when a frame update occurs
 
 	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
 	uint8_t snum = 0, trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
@@ -5143,8 +5146,8 @@ void ST7735_t3::endUpdateAsync() {
 #endif
 #if defined(__IMXRT1062__)
 		_dma_state |= ST77XX_DMA_ONE_FRAME; // pretend it was a one-frame transaction
-		//_dma_data[_spi_num].endUpdate(); // stop after current chunk
-		//_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
+		_dma_data[_spi_num].endUpdate(); // stop after current chunk
+		_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
 #endif
 	}
 #endif // ENABLE_ST77XX_FRAMEBUFFER
