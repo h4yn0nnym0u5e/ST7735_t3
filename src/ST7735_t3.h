@@ -337,7 +337,7 @@ typedef class ST7735DMA_Data_class {
         maxRows = rows;
         totalRows = tRows;
       }
-//*      
+/*      
 Serial.printf("%d of %d rows of %d bytes from %08X to %08X; %d bytes per row\n",
               rows, tRows, bytesPerRow, (uint32_t) _pfbtft, (uint32_t)_intb,screenRowBytes);
 //*/              
@@ -422,7 +422,7 @@ digitalWriteFast(1,1);
       uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR 
                             - screenRowBytes*(totalRows-lastRows));
 
-Serial.printf("resetDMAmem: SADDR is %08X\n",sb.TCD->SADDR);
+//Serial.printf("resetDMAmem: SADDR is %08X\n",sb.TCD->SADDR);
 
       // set up anew: this is not the initial setup!
       setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, 

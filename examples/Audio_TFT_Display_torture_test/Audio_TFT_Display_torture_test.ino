@@ -27,7 +27,7 @@
  * 10 = async frame buffer in PSRAM, update changed range
  * 11 = async frame buffer, update changed range, continuous
  */
-#define UPDATE_MODE 11
+#define UPDATE_MODE 7
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -372,6 +372,18 @@ void fbInPSRAM(void)
 }
 
 //---------------------------------------------------------------------------------
+//                    888                      
+//                    888                      
+//                    888                      
+//  .d8888b   .d88b.  888888 888  888 88888b.  
+//  88K      d8P  Y8b 888    888  888 888 "88b 
+//  "Y8888b. 88888888 888    888  888 888  888 
+//       X88 Y8b.     Y88b.  Y88b 888 888 d88P 
+//   88888P'  "Y8888   "Y888  "Y88888 88888P"  
+//                                    888      
+//                                    888      
+//                                    888      
+//---------------------------------------------------------------------------------
 void setup() {
   pinMode(LED_PWM, OUTPUT);
 
@@ -406,6 +418,12 @@ void setup() {
   halt_cpu();
 #endif // defined(TEENSY_DEBUG_H)
   
+  // Set up frame complete callback.
+  // Do this before we set the interrupt priority, because
+  // that initiialises DMA and this clears the DMA init flag,
+  // for some reason 
+  tft.setFrameCompleteCB(frameCompleteFn);
+
   // Lower the DMA interrupt priority so audio works OK.
   // This MUST be done before the first attempt to do
   // an asynchronous screen update.
@@ -489,8 +507,16 @@ void setup() {
 }
 
 //=================================================================================
+//           888                        888               
+//           888                        888               
+//           888                        888               
+//   .d8888b 88888b.   .d88b.   .d8888b 888  888 .d8888b  
+//  d88P"    888 "88b d8P  Y8b d88P"    888 .88P 88K      
+//  888      888  888 88888888 888      888888K  "Y8888b. 
+//  Y88b.    888  888 Y8b.     Y88b.    888 "88b      X88 
+//   "Y8888P 888  888  "Y8888   "Y8888P 888  888  88888P'
+//=================================================================================
 elapsedMillis msecs;
-
 /*
  * We need to check a number of functions which can result
  * in long-running transactions
@@ -498,6 +524,7 @@ elapsedMillis msecs;
 elapsedMicros checkMicros;
 uint16_t colours[] = {ST7735_RED, CL(255,128,0), ST7735_YELLOW, ST7735_GREEN, ST7735_CYAN, ST7735_BLUE, ST7735_MAGENTA, ST7735_WHITE};
 
+//------------------------------------------------------------------------
 uint16_t nextColour(void)
 {
   static int idx;
@@ -509,7 +536,14 @@ uint16_t nextColour(void)
   return result;    
 }
 
-//========================================================================
+//------------------------------------------------------------------------
+volatile bool frameCompleted;
+void frameCompleteFn(void)
+{
+  frameCompleted = true;
+}
+
+//------------------------------------------------------------------------
 uint32_t check_(void)
 {
   checkMicros = 0;
@@ -781,6 +815,17 @@ void run_async_check(const char* name, uint32_t num)
 #endif // 9 or 10 == UPDATE_MODE
 
 //=================================================================================
+//  888                            
+//  888                            
+//  888                            
+//  888  .d88b.   .d88b.  88888b.  
+//  888 d88""88b d88""88b 888 "88b 
+//  888 888  888 888  888 888  888 
+//  888 Y88..88P Y88..88P 888 d88P 
+//  888  "Y88P"   "Y88P"  88888P"  
+//                        888      
+//                        888      
+//                        888
 //=================================================================================
 uint32_t lastCheck;
 bool asyncStarted;
@@ -875,14 +920,6 @@ void loop()
         Serial.printf("Async start was %sOK\n",
           tft.updateScreenAsync(true,true,true)?"":"not ");
 
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_RED); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_YELLOW); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_GREEN); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_CYAN); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_BLUE); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, ST77XX_MAGENTA); tft.flushFramebufferCache(); delay(1);
-        tft.fillRect(SQ*3, SQ+96, 80, 80, 0xDEAD); tft.flushFramebufferCache(); delay(1);
-
         asyncStarted = true;
         asyncTime = 0;
         break;
@@ -944,31 +981,30 @@ void loop()
         case 11:
         {
           elapsedMillis t = 0;
-          int32_t fc = tft.frameCount();
 
           while (t < 500) // for half a second
           {
-            // wait for current (partial) update to complete
-            while (fc == tft.frameCount())
+            // use callback to flag when frame is done
+            if (frameCompleted)
             {
-              delay(1);
-              if (t >= 500)
-                break;
-            }
-
-            if (fc > tft.frameCount()) // whole screen / area has been updated
+    digitalWriteFast(2,1);
+              frameCompleted = false;
               RUN_CHECK(writeRect4BPP);
-
-            fc = tft.frameCount();
-            //tft.flushFramebufferCache(); // not needed?
+              tft.flushFramebufferCache(); // yup, it's needed!
+    digitalWriteFast(2,0);
+            }
           }
 
+          while (!frameCompleted)
+            delay(1); // a bit of time to allow last update to appear
           t = 0;
           tft.endUpdateAsync();
           tft.waitUpdateAsyncComplete();
           Serial.printf("Took %dms to stop async update\n", (int) t);
           tft.updateChangedAreasOnly(false); // just in case
+          tft.setClipRect(); // ditto
           asyncStarted = false;
+          delay(100);
         }
           break;
       }

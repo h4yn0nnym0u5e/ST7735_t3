@@ -4089,6 +4089,18 @@ void ST7735_t3::dmaInterrupt2(void) {
 extern void dumpDMA_TCD(DMABaseClass *dmabc);
 #endif
 
+/*
+ * DMA interrupt processing. 
+ *
+ * -  check to see if another DMA transaction is needed: 
+ *   - multi-chunk update
+ *   - continuous updates
+ * - update and re-start if so
+ * - stop and clean up if not
+ * 
+ * - do user callbacks if configured
+ * - do mid-trnsaction breaks if configured
+ */
 void ST7735_t3::process_dma_interrupt(void) {
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, HIGH);
@@ -4134,6 +4146,7 @@ void ST7735_t3::process_dma_interrupt(void) {
   	//=========================================================
 	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
 	DMAChannel&     dmatx = dmaData._dmatx;
+	bool userCallbackNeeded = false;
 
 	dmatx.clearInterrupt();
 digitalWriteFast(0,1);
@@ -4156,11 +4169,15 @@ digitalWriteFast(0,1);
 		// IRQ-triggered DMA stopped: restart if needed
 		if ((_dma_state & ST77XX_DMA_IRQ_EVERY) != 0) 
 		{
-			// if continuous mode and past last frame, reset frame count
+			// if continuous mode and past last frame, 
+			// reset frame count and request callback
 			if ((_dma_state & ST77XX_DMA_CONT) != 0 
 			 && (_dma_state & ST77XX_DMA_USE_CLIP) == 0 
 			 && _dma_frame_count >= dmaData.getFrameCount())
+			{
 				_dma_frame_count = 0;
+				userCallbackNeeded = true;
+			}
 
 			if ( _dma_frame_count < dmaData.getFrameCount() // not done all frames 
 			 || (_dma_state & ST77XX_DMA_USE_CLIP) != 0) // or using clipping rectangle (self-terminating)
@@ -4212,8 +4229,9 @@ digitalWriteFast(0,1);
 									| LPSPI_TCR_FRAMESZ(15) 
 									| LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
 	
-Serial.printf("window reset to %d,%d,%d,%d; %d bytes per chunk\n",x0, y0, x1, y1,bytesToOutput);
+//Serial.printf("window reset to %d,%d,%d,%d; %d bytes per chunk\n",x0, y0, x1, y1,bytesToOutput);
 						_dma_frame_count = 0;
+						userCallbackNeeded = true;
 					}
 
 					if (bytesToOutput > 0) // more to output - do rest of preparation
@@ -4297,18 +4315,28 @@ digitalWriteFast(2,1);
       //	_pimxrt_spi->FCR, _spi_fcr_save, _pimxrt_spi->TCR);
       writecommand_last(ST7735_NOP);
       endSPITransaction();
+
+	  // We don't have a display active any more...
       _dma_state &= ~ST77XX_DMA_ACTIVE;
-      _dmaActiveDisplay[_spi_num] =
-          0; // We don't have a display active any more...
+      _dmaActiveDisplay[_spi_num] = 0; 
+	  
+	  userCallbackNeeded = true;
+
 digitalWriteFast(2,0);
-		} else {
+	} else {
+		/*
       // Lets try to flush out memory
       if (_frame_complete_callback)
         (*_frame_complete_callback)();
-      else if ((uint32_t)_pfbtft >= 0x20200000u)
+      else */ if ((uint32_t)_pfbtft >= 0x20200000u)
         arm_dcache_flush(_pfbtft, _count_pixels*2);
+		
     }
   }
+
+  if (userCallbackNeeded && nullptr != _frame_complete_callback)
+  	(*_frame_complete_callback)();
+
 digitalWriteFast(0,0);  
   asm("dsb");
 #else
@@ -4907,7 +4935,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
 	{
 		setAddr(x1, y1, x2 - 1, y2 - 1);
-		Serial.printf("window set to %d,%d,%d,%d\n",x1, y1, x2 - 1, y2 - 1);		
+// Serial.printf("window set to %d,%d,%d,%d\n",x1, y1, x2 - 1, y2 - 1);		
 	}
 	else
 		setAddr(0, 0, _width - 1, _height - 1); // Doing full window.
