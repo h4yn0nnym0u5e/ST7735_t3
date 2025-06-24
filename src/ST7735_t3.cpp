@@ -4112,13 +4112,14 @@ void ST7735_t3::process_dma_interrupt(void) {
 	//=========================================================
 	_dmatx.clearInterrupt();
 
-	#ifdef DEBUG_ASYNC_UPDATE
+#ifdef DEBUG_ASYNC_UPDATE
 	static uint8_t debug_count = 10;
-  if (_frame_callback_on_HalfDone && debug_count) {
-  	Serial.printf("DI %x %x %x\n", _dmatx.TCD->SADDR, _dmasettings[_spi_num][0].TCD->SADDR, _dmasettings[_spi_num][1].TCD->SADDR);
-  	debug_count--;
-  }
-  #endif
+	if (_frame_callback_on_HalfDone && debug_count) {
+		Serial.printf("DI %x %x %x\n", _dmatx.TCD->SADDR, _dmasettings[_spi_num][0].TCD->SADDR, _dmasettings[_spi_num][1].TCD->SADDR);
+		debug_count--;
+	}
+#endif
+
   if (_frame_callback_on_HalfDone &&
       (_dmatx.TCD->SADDR >= _dmasettings[_spi_num][1].TCD->SADDR)) {
     _dma_sub_frame_count = 1; // set as partial frame.
@@ -4292,7 +4293,6 @@ digitalWriteFast(1,0);
     //if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
 	if (!dmaData.isActive())
 	{
-digitalWriteFast(2,1);
 		// We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
@@ -4327,8 +4327,6 @@ digitalWriteFast(2,1);
       _dmaActiveDisplay[_spi_num] = 0; 
 	  
 	  userCallbackNeeded = true;
-
-digitalWriteFast(2,0);
 	} else {
 		/*
       // Lets try to flush out memory
@@ -4343,7 +4341,6 @@ digitalWriteFast(2,0);
   if (userCallbackNeeded && nullptr != _frame_complete_callback)
   	(*_frame_complete_callback)();
 
-digitalWriteFast(0,0);  
   asm("dsb");
 #else
 	//=========================================================
@@ -4901,7 +4898,6 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 				y1 = _displayclipy1;
 				y2 = _displayclipy2;
 			}
-			//Serial.printf(" [%d,%d;%d,%d] ",x1,x2,y1,y2);
 
 			// set up first mem2mem copy
 			uint32_t rows = y2 - y1; // number of rows to output
@@ -4941,10 +4937,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	
 	// tell display how much of it we're updating
 	if (0 != (_dma_state & ST77XX_DMA_USE_CLIP))
-	{
 		setAddr(x1, y1, x2 - 1, y2 - 1);
-// Serial.printf("window set to %d,%d,%d,%d\n",x1, y1, x2 - 1, y2 - 1);		
-	}
 	else
 		setAddr(0, 0, _width - 1, _height - 1); // Doing full window.
 	writecommand_last(ST7735_RAMWR);
@@ -5035,7 +5028,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 }	
 
 
-bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update the screen now.
+bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the screen now.
 {
 	bool result = false;
 	// Not sure if better here to check flag or check existence of buffer.
@@ -5071,25 +5064,6 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 	if ((uint32_t)_pfbtft >= 0x20200000u)
 		arm_dcache_flush(_pfbtft, _count_pixels*2);
 
-/*
- Note to future self: 
- Since SPI seems to be limited to 32 bytes / 16 words per minor loop,
- in accordance with the data sheet FIFO depth of 16 words, we need a 
- strategy for a non-whole-screen area. 
-
- In this case we need to adjust the SADDR every row of output, which the
- DMA can do, but it only does this every time the major count expires, at
- which point we'll be interrupted. But that's relatively OK, as we can
- just count rows and immediately re-trigger if we're not complete. 
-
- Say we have a 40x30 area to write. This gives us one TCD with two major
- iterations transferring 16 pixels each, chained to the next with one major
- iteration of 8 pixels for a row total of 40 pixels. Repeat 30x. 
-
- Bad case: 33 pixels wide. Now the second TCD only writes a single pixel, if
- we use the naive method, so risks stuff not being ready in time if the
- interrupt latency is poor. 
- */		
 	// Single DMA request for whole area
 	uint32_t screenSize = _height*_width, minorBytes = 32;
 	// Serial.printf("Write %d words in minor chunks of %d bytes\n", screenSize, minorBytes);
@@ -5098,8 +5072,8 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)					// call to say update 
 	dumpDMASettings();
 #endif
   	beginSPITransaction();
-	// Doing full window.
 
+	// Doing full window.
 	setAddr(0, 0, _width - 1, _height - 1);
 	writecommand_last(ST7735_RAMWR);
 

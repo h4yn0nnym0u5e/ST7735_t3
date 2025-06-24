@@ -337,10 +337,6 @@ typedef class ST7735DMA_Data_class {
         maxRows = rows;
         totalRows = tRows;
       }
-/*      
-Serial.printf("%d of %d rows of %d bytes from %08X to %08X; %d bytes per row\n",
-              rows, tRows, bytesPerRow, (uint32_t) _pfbtft, (uint32_t)_intb,screenRowBytes);
-//*/              
       // set up source: interleaved rows from "frame buffer"
       sb.TCD->SADDR = _pfbtft;
       sb.TCD->SOFF  = 2; // increment by 2 after each read
@@ -411,7 +407,6 @@ Serial.printf("%d of %d rows of %d bytes from %08X to %08X; %d bytes per row\n",
     uint32_t resetDMAmem(int snum, uint32_t& opRows)
     {
       DMASetting& sb = _dmasettings[snum];
-digitalWriteFast(1,1);
       uint32_t lastRows = DMA_TCD_BITER_ELINKYES_BITER(sb.TCD->BITER); // rows in the last chunk
       uint32_t bytesPerRow = DMA_TCD_NBYTES_MLOFFYES_NBYTES(sb.TCD->NBYTES);  // bytes per source row to copy
       uint32_t rows = maxRows; // last copy was probably smaller than we have room for: back to max
@@ -422,14 +417,11 @@ digitalWriteFast(1,1);
       uint16_t* newStart = (uint16_t*)((uint8_t*) sb.TCD->SADDR 
                             - screenRowBytes*(totalRows-lastRows));
 
-//Serial.printf("resetDMAmem: SADDR is %08X\n",sb.TCD->SADDR);
-
       // set up anew: this is not the initial setup!
       setDMAmem2mem(snum, newStart, bytesPerRow, rows, screenRowBytes, 
                     dst, totalRows, true);
 
       opRows = maxRows; // max rows we can output                    
-digitalWriteFast(1,0);
       return totalRows; // total rows to output
     }
 
@@ -453,7 +445,7 @@ digitalWriteFast(1,0);
       // SLAST is negative, so subtract chunk size * number of chunk settings
       int addrOff = (snum + nSettings) % frameCount;
       snum %= nSettings;
-     _dmasettings[snum].TCD->SADDR = (uint8_t*) fbBase - _dmasettings[snum].TCD->SLAST*addrOff;
+      _dmasettings[snum].TCD->SADDR = (uint8_t*) fbBase - _dmasettings[snum].TCD->SLAST*addrOff;
     }
 
 
@@ -915,14 +907,12 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   void waitFIFOempty(void)
   {
-//digitalWriteFast(2,1);
 #if defined(__IMXRT1062__)
     while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
       ;
     while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
       ;
 #endif // defined(__IMXRT1062__)
-//digitalWriteFast(2,0);
     }
 
   // Do a check for elapsed time since beginSPITransaction(), and if needed
@@ -933,16 +923,12 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     bool result = false;
     bool inISR = (SCB_ICSR & SCB_ICSR_VECTACTIVE_Msk) != 0;
 
-//digitalWriteFast(1,1);
-//digitalWriteFast(2,1);
     if (isPastMaxTransaction())
     {
       result = true;
 
-//digitalWriteFast(2,0);
       waitFIFOempty();
       waitTransmitComplete();
-//digitalWriteFast(2,1);
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
@@ -959,8 +945,6 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         writecommand(ST7735_RAMWR);
       }
     }
-//digitalWriteFast(1,0);
-//digitalWriteFast(2,0);
  
     return result;
   }

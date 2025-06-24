@@ -25,7 +25,7 @@
  *  8 = async frame buffer, clipped
  *  9 = async frame buffer, update changed range
  * 10 = async frame buffer in PSRAM, update changed range
- * 11 = async frame buffer, update changed range, continuous
+ * 11 = async frame buffer, update clip rectangle, continuous
  */
 #define UPDATE_MODE 11
 #define notMICRO_DEXED
@@ -987,11 +987,9 @@ void loop()
             // use callback to flag when frame is done
             if (frameCompleted)
             {
-    digitalWriteFast(2,1);
               frameCompleted = false;
               RUN_CHECK(writeRect4BPP);
               tft.flushFramebufferCache(); // yup, it's needed!
-    digitalWriteFast(2,0);
             }
           }
 
@@ -999,10 +997,8 @@ void loop()
             delay(1); // a bit of time to allow last update to appear
           Serial.print("Stop async update: ");
           t = 0;
-    digitalWriteFast(2,1);
           tft.endUpdateAsync();
           tft.waitUpdateAsyncComplete();
-    digitalWriteFast(2,0);
           Serial.printf("took %dus\n", (int) t);
           tft.updateChangedAreasOnly(false); // just in case
           tft.setClipRect(); // ditto
