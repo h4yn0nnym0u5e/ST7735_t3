@@ -4773,6 +4773,47 @@ void ST7735_t3::dumpDMASettings() {
 #endif
 }
 
+/*
+ * Figure out which area to use for async clipped update,
+ * and set the first TCD appropriately. 
+ * 
+ * \return window limits using reference variables
+ */
+void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2, 
+								  int16_t& y1, int16_t& y2,
+								  uint32_t& bytesToWrite)
+{
+	if (_updateChangedAreasOnly)
+	{
+		x1 = _changed_min_x;
+		x2 = _changed_max_x + 1;
+		y1 = _changed_min_y;
+		y2 = _changed_max_y + 1;
+		clearChangedRange();
+	}
+	else
+	{
+		x1 = _displayclipx1;
+		x2 = _displayclipx2;
+		y1 = _displayclipy1;
+		y2 = _displayclipy2;
+	}
+
+	// set up first mem2mem copy
+	uint32_t rows = y2 - y1; // number of rows to output
+	uint32_t rowBytes = (x2 - x1)*2;
+	uint32_t areaMem = rows * rowBytes;
+	if (areaMem > _intbSize) // can't do it all in one go...
+		rows = _intbSize / rowBytes; // ...do this many per frame
+	// Use _dmasettings[0] to do memory-to-memory copy
+	_dma_data[_spi_num].setDMAmem2mem(0, 
+				_pfbtft + y1*_width + x1,
+				rowBytes, rows, _width*2, _intbData,
+				y2 - y1 
+				);
+	bytesToWrite = rows * rowBytes;				
+}
+
 // call to say update the screen now.
 bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 								  bool interrupt_every,	//!< interrupt after every DMA: no chaining of settings on completion
@@ -4881,6 +4922,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 		{
 			_dma_state |= ST77XX_DMA_USE_CLIP;
 
+	/*
 			if (_updateChangedAreasOnly)
 			{
 				x1 = _changed_min_x;
@@ -4909,12 +4951,14 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 						  rowBytes, rows, _width*2, _intbData,
 						  y2 - y1 
 						 );
+	*/
+			_prepareDMAwindow(x1,x2,y1,y2,bytesToWrite);
 			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
 
 			// modify settings for the mem2SPI DMA:
 			snum = 1;
 			psrc = _intbData;
-			bytesToWrite = rows * rowBytes;
+			//bytesToWrite = rows * rowBytes;
 			trigSrc = DMAMUX_SOURCE_MANUAL;
 		}
 

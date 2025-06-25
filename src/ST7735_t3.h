@@ -515,6 +515,9 @@ class ST7735_t3 : public Print
   // record of display window setting
   struct {uint16_t x0, y0, x1, y1;} dw;
   uint8_t _useIntermediateBuffer(void* m, size_t s, bool w=false);  // use the intermediate buffer?  First call will allocate
+  void _prepareDMAwindow(int16_t& x1, int16_t& x2, 
+                         int16_t& y1, int16_t& y2,
+                         uint32_t& bytesToWrite);
 
  public:
 
