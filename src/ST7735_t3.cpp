@@ -4148,10 +4148,12 @@ void ST7735_t3::process_dma_interrupt(void) {
 	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
 	DMAChannel&     dmatx = dmaData._dmatx;
 	bool userCallbackNeeded = false;
-
+digitalWriteFast(0,1);
+digitalWriteFast(1,1);
 	dmatx.clearInterrupt();
-	if (0 != (_dma_state & ST77XX_DMA_IRQ_EVERY)) // if not chained
-		waitFIFOempty(); // defensive! About 1.8us...
+	if (0 == (_dma_state & ST77XX_DMA_CHAINED)) // if not chained
+		waitFIFOempty(); // defensive! About 1.8us..
+digitalWriteFast(1,0);		
 	if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{
@@ -4200,7 +4202,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 							*linesPerFrame; 
 				}
 
-				if (y1 - y0 + 1 > 0) // non-zero height remaining
+				if (y1 - y0 + 1 > 0 // non-zero height remaining
+				 && 0 == (_dma_state & ST77XX_DMA_CHAINED)) // and FIFO will empty
 				{
 					midTransaction(x0, y0, x1, y1); // mid-transaction break
 					maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) |	LPSPI_TCR_RXMSK);
@@ -4281,6 +4284,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 		{
 			// set recently-completed frame ready for next chain
 			dmaData.setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
+			if (0 == _dma_frame_count % dmaData.getFrameCount())
+				userCallbackNeeded = true;
 		}
 	} while (false);
 	
@@ -4400,11 +4405,11 @@ void ST7735_t3::process_dma_interrupt(void) {
 		_dmarx.enable();
 		_dmatx.enable();
 	}
-
 #endif	// Teensy variant
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
+digitalWriteFast(0,0);
 }
 
 //=======================================================================
@@ -4864,10 +4869,12 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	// Start off remove disable on completion from both...
 	// it will be the ISR that disables it...
 	flushFramebufferCache();
-	if (update_cont)
-		interrupt_every = true; // so we can tell when a frame update occurs
+	//if (update_cont)
+	//	interrupt_every = true; // so we can tell when a frame update occurs
 
-	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
+	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME 
+			 | ST77XX_DMA_CHAINED
+		     | ST77XX_DMA_IRQ_EVERY | ST77XX_DMA_USE_CLIP);
 	uint8_t snum = 0, trigSrc = _spi_hardware->tx_dma_channel; // assume framebuffer -> screen
 
 	int16_t x1=0, x2=0, y1=0, y2=0;
@@ -4924,6 +4931,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	{	
 		// whole screen - ignore request to use clip rectangle
 		_dma_data[_spi_num].setDMAall(_pfbtft, COUNT_WORDS_WRITE*2);
+		_dma_state |= ST77XX_DMA_CHAINED;
 	}
 
 	// check that DMA settings make sense - This Never Fails :)

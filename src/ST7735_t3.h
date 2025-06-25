@@ -731,9 +731,10 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   enum {ST77XX_DMA_INIT      = 0x01, // DMA settings are initialised
         ST77XX_DMA_CONT      = 0x02, // continuous updates
         ST77XX_DMA_ONE_FRAME = 0x04, // DMA has finished after one frame
-        // ST77XX_DMA_EVER_INIT = 0x08,
+        ST77XX_DMA_CHAINED   = 0x08, // SPI DMA is chained
         ST77XX_DMA_IRQ_EVERY = 0x10, // interrupt every DMA frame
         ST77XX_DMA_USE_CLIP  = 0x20, // use clipping rectangle, not full screen
+        // = 0x40
         ST77XX_DMA_ACTIVE    = 0x80}; // is active
 
   // added support to use optional Frame buffer

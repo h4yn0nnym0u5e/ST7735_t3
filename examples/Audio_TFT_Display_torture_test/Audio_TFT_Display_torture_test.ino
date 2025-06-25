@@ -479,6 +479,10 @@ void setup() {
     case 5:
       fbInPSRAM();
       // fallthrough
+      case 2:
+      case 3:
+      tft.setMaxAsyncLines(320);
+      // fallthrough    
     default:
       tft.useFrameBuffer(true);
       break;
@@ -973,17 +977,22 @@ void loop()
 
     if (tft.asyncUpdateActive())
     {
+      // how long to do foreground changes for...
+      uint32_t timeLimit = 100'000; // ...in microseconds
+
       switch (UPDATE_MODE)
       {
         default: break;
 
         case 3:
         case 7:
+          timeLimit = 250'000;
+          // fallthrough
         case 11:
         {
           elapsedMicros t = 0;
 
-          while (t < 100'000) // for 0.1s (~12 frames at 16MHz)
+          while (t < timeLimit) // for a while
           {
             // use callback to flag when frame is done
             if (frameCompleted)
