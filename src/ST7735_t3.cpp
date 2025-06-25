@@ -4148,12 +4148,9 @@ void ST7735_t3::process_dma_interrupt(void) {
 	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
 	DMAChannel&     dmatx = dmaData._dmatx;
 	bool userCallbackNeeded = false;
-digitalWriteFast(0,1);
-digitalWriteFast(1,1);
 	dmatx.clearInterrupt();
 	if (0 == (_dma_state & ST77XX_DMA_CHAINED)) // if not chained
 		waitFIFOempty(); // defensive! About 1.8us..
-digitalWriteFast(1,0);		
 	if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{
@@ -4295,7 +4292,7 @@ digitalWriteFast(1,0);
     //if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
 	if (!dmaData.isActive())
 	{
-		// We are in single refresh mode and we've done all frames,
+	  // We are in single refresh mode and we've done all frames,
       // or the user has called cancel: let's try to release the CS pin
       // Serial.printf("Before FSR wait: %x %x\n", _pimxrt_spi->FSR,
       // _pimxrt_spi->SR);
@@ -4409,7 +4406,6 @@ digitalWriteFast(1,0);
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
-digitalWriteFast(0,0);
 }
 
 //=======================================================================
@@ -4869,8 +4865,6 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	// Start off remove disable on completion from both...
 	// it will be the ISR that disables it...
 	flushFramebufferCache();
-	//if (update_cont)
-	//	interrupt_every = true; // so we can tell when a frame update occurs
 
 	_dma_state &= ~(ST77XX_DMA_CONT | ST77XX_DMA_ONE_FRAME 
 			 | ST77XX_DMA_CHAINED
