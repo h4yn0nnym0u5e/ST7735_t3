@@ -92,10 +92,11 @@ Since the smaller ST7735 and maybe ST7789 displays have fewer pixels, you can on
 To enable this we added a couple of APIs 
 
 ```c++
-    uint8_t useFrameBuffer(boolean b) - if b non-zero it will allocate memory and start using
+    uint8_t useFrameBuffer(bool b) - if b true it will allocate memory and start using
     void	freeFrameBuffer(void) - Will free up the memory that was used.
     void	updateScreen(void); - Will update the screen with all of your updates...
 	void	setFrameBuffer(uint16_t *frame_buffer); - Now have the ability allocate the frame buffer and pass it in, to avoid use of malloc
+	void updateChangedAreasOnly(bool b) - if b true only changed areas get updated on-screen
 ```
 
 Asynchronous Update support (Frame buffer)
@@ -162,8 +163,8 @@ A number of the drawing primitives take a signifcant time to execute, particular
 
 Two API calls control this:
 ```c++
-	void setMaxTransaction(uint32_t us); // approximate maximum time between breaks
-	void enableYieldInMidTransaction(bool en); // true to call yield() in the break
+void setMaxTransaction(uint32_t us); // approximate maximum time between breaks
+void enableYieldInMidTransaction(bool en); // true to call yield() in the break
 ```
 
 The maximum transaction time is only approximate, because checks to see if the time has expired only occur at points when it is straightforward to suspend and resume the drawing. For example, with large character drawing, this is done after every character line. 
@@ -174,17 +175,20 @@ Extended asynchronous updates (Teensy 4.x only)
 =====
 Following on from the above, it is apparent that asynchronous updates will also take a long time to execute, especially for large displays. Further / updated API calls are provided to mitigate this:
 ```c++
-  void setMaxAsyncLines(int lines); // max lines to update between interrupts
-  void setAsyncInterruptPriority(int prio); // set interrupt priority
-  void forceAsyncInterruptPriority(int prio); // force-set interrupt priority
-	// call to trigger async screen update
-  bool  updateScreenAsync(bool update_cont = false, 	  // continuous updates
-							bool interrupt_every = false, // interrupt after every set of lines
-							bool use_clip_rect = false);  // only update part of the display
+void setMaxAsyncLines(int lines); // max lines to update between interrupts
+void setAsyncInterruptPriority(int prio); // set interrupt priority
+void forceAsyncInterruptPriority(int prio); // force-set interrupt priority
+// call to trigger async screen update
+bool  updateScreenAsync(bool update_cont = false, 	  // continuous updates
+						bool interrupt_every = false, // interrupt after every set of lines
+						bool use_clip_rect = false);  // only update part of the display
 
-  uint8_t useIntermediateBuffer(size_t s); // allocate intermediate buffer
-  uint8_t useIntermediateBuffer(void* m, size_t s) // use provided intermediate buffer
-  void  freeIntermediateBuffer(void);  // call to release the buffer							
+uint8_t useIntermediateBuffer(size_t s); // allocate intermediate buffer
+uint8_t useIntermediateBuffer(void* m, size_t s) // use provided intermediate buffer
+void  freeIntermediateBuffer(void);  // call to release the buffer							
+
+bool changeAsyncClipArea(void); // notify continuous clipped updates of area change
+void clearChangedArea(void);    // reset changed area to "nothing"
 ```
 By setting the update to interrupt every few lines of output (`interrupt_every=true`), a mid-transaction break can occur if needed (see previous section). Note that in this case the break occurs inside an interrupt service routine, so `yield()` will _not_ be called, even if enabled.
 

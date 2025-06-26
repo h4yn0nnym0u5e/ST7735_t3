@@ -4149,9 +4149,13 @@ void ST7735_t3::process_dma_interrupt(void) {
 	DMAChannel&     dmatx = dmaData._dmatx;
 	bool userCallbackNeeded = false;
 	dmatx.clearInterrupt();
+digitalWriteFast(1,1);
+delayMicroseconds(1);
+digitalWriteFast(1,0);
 	if (0 == (_dma_state & ST77XX_DMA_CHAINED)) // if not chained
 		waitFIFOempty(); // defensive! About 1.8us..
-	if (_frame_callback_on_HalfDone &&
+digitalWriteFast(1,1);
+		if (_frame_callback_on_HalfDone &&
 		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
 	{
 		_dma_sub_frame_count = 1; // set as partial frame.
@@ -4183,7 +4187,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 			if ( _dma_frame_count < dmaData.getFrameCount() // not done all frames 
 			 || (_dma_state & ST77XX_DMA_USE_CLIP) != 0) // or using clipping rectangle (self-terminating)
 			{
-				uint16_t x0, y0, x1, y1;
+				int16_t x0, y0, x1, y1;
 				getAddr(x0, y0, x1, y1); // current window
 
 				// figure out the new window height
@@ -4219,12 +4223,23 @@ void ST7735_t3::process_dma_interrupt(void) {
 					 && 0 != (_dma_state & ST77XX_DMA_CONT)
 					   )
 					{
-						uint32_t opRows;
-						uint32_t totalRows = dmaData.resetDMAmem(0,opRows);
+digitalWriteFast(2,1);
+						if (_changeAsyncClipArea)
+						{
+							_prepareDMAwindow(x0,x1,y0,y1,bytesToOutput);
+							x1 -= 1;
+							y1 -= 1;
+							writecommand_last(ST7735_NOP);
+						}
+						else
+						{
+							uint32_t opRows;
+							uint32_t totalRows = dmaData.resetDMAmem(0,opRows);
 
-						// x1 and y1 are inclusive, hence +1
-						bytesToOutput = opRows * (x1+1 - x0) * 2;
-						y0 = y1+1 - totalRows;
+							// x1 and y1 are inclusive, hence +1
+							bytesToOutput = opRows * (x1+1 - x0) * 2;
+							y0 = y1+1 - totalRows;
+						}
 						setAddr(x0, y0, x1, y1);
 						writecommand_last(ST7735_RAMWR);
 						maybeUpdateTCR(_tcr_dc_not_assert 
@@ -4234,6 +4249,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 //Serial.printf("window reset to %d,%d,%d,%d; %d bytes per chunk\n",x0, y0, x1, y1,bytesToOutput);
 						_dma_frame_count = 0;
 						userCallbackNeeded = true;
+digitalWriteFast(2,0);						
 					}
 
 					if (bytesToOutput > 0 // more to output - do rest of preparation
@@ -4403,6 +4419,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 		_dmatx.enable();
 	}
 #endif	// Teensy variant
+digitalWriteFast(1,0);
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
@@ -4566,7 +4583,7 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 
 		endSPITransaction();
 	}
-  	clearChangedRange(); // make sure the dirty range is updated.
+  	_clearChangedArea(); // make sure the dirty range is updated.
 }			 
 
 #ifdef DEBUG_ASYNC_UPDATE
@@ -4783,13 +4800,17 @@ void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2,
 								  int16_t& y1, int16_t& y2,
 								  uint32_t& bytesToWrite)
 {
+	bool usedClip = true;
+
+digitalWriteFast(0,1);	
 	if (_updateChangedAreasOnly)
 	{
 		x1 = _changed_min_x;
 		x2 = _changed_max_x + 1;
 		y1 = _changed_min_y;
 		y2 = _changed_max_y + 1;
-		clearChangedRange();
+		_clearChangedArea();
+		usedClip = false;
 	}
 	else
 	{
@@ -4811,7 +4832,11 @@ void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2,
 				rowBytes, rows, _width*2, _intbData,
 				y2 - y1 
 				);
-	bytesToWrite = rows * rowBytes;				
+	bytesToWrite = rows * rowBytes;	
+	_changeAsyncClipArea = false;		
+digitalWriteFast(0,0);		
+Serial.printf("Window is %04X,%04X,%04X,%04X; %d bytes; used %s area\n",
+	         x1,x2-1,y1,y2-1,bytesToWrite,usedClip?"clip":"changed");
 }
 
 // call to say update the screen now.
@@ -4922,43 +4947,12 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 		{
 			_dma_state |= ST77XX_DMA_USE_CLIP;
 
-	/*
-			if (_updateChangedAreasOnly)
-			{
-				x1 = _changed_min_x;
-				x2 = _changed_max_x + 1;
-				y1 = _changed_min_y;
-				y2 = _changed_max_y + 1;
-				clearChangedRange();
-			}
-			else
-			{
-				x1 = _displayclipx1;
-				x2 = _displayclipx2;
-				y1 = _displayclipy1;
-				y2 = _displayclipy2;
-			}
-
-			// set up first mem2mem copy
-			uint32_t rows = y2 - y1; // number of rows to output
-			uint32_t rowBytes = (x2 - x1)*2;
-			uint32_t areaMem = rows * rowBytes;
-			if (areaMem > _intbSize) // can't do it all in one go...
-				rows = _intbSize / rowBytes; // ...do this many per frame
-			// Use _dmasettings[0] to do memory-to-memory copy
-			_dma_data[_spi_num].setDMAmem2mem(0, 
-						  _pfbtft + y1*_width + x1,
-						  rowBytes, rows, _width*2, _intbData,
-						  y2 - y1 
-						 );
-	*/
 			_prepareDMAwindow(x1,x2,y1,y2,bytesToWrite);
 			_dma_data[_spi_num].chainDMA(0, 1); // chain to _dmasettings[1]
 
 			// modify settings for the mem2SPI DMA:
 			snum = 1;
 			psrc = _intbData;
-			//bytesToWrite = rows * rowBytes;
 			trigSrc = DMAMUX_SOURCE_MANUAL;
 		}
 

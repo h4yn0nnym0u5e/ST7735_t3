@@ -513,7 +513,7 @@ typedef class ST7735DMA_Data_class {
 class ST7735_t3 : public Print
 {
   // record of display window setting
-  struct {uint16_t x0, y0, x1, y1;} dw;
+  struct {int16_t x0, y0, x1, y1;} dw;
   uint8_t _useIntermediateBuffer(void* m, size_t s, bool w=false);  // use the intermediate buffer?  First call will allocate
   void _prepareDMAwindow(int16_t& x1, int16_t& x2, 
                          int16_t& y1, int16_t& y2,
@@ -548,7 +548,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     __attribute__((always_inline)) {
-        dw = {x0, y0, x1, y1};
+        dw = {(int16_t) x0, (int16_t) y0, (int16_t) x1, (int16_t) y1};
         writecommand(ST7735_CASET); // Column addr set
         writedata16(x0+_xstart);   // XSTART 
         writedata16(x1+_xstart);   // XEND
@@ -556,7 +556,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         writedata16(y0+_ystart);   // YSTART
         writedata16(y1+_ystart);   // YEND
   }
-  void getAddr(uint16_t& x0, uint16_t& y0, uint16_t& x1, uint16_t& y1)
+  void getAddr(int16_t& x0, int16_t& y0, int16_t& x1, int16_t& y1)
   {
     x0 = dw.x0; y0 = dw.y0; x1 = dw.x1; y1 = dw.y1;
   }
@@ -754,6 +754,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  updateScreen(void);       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false, bool use_clip_rect = false);  // call to say update the screen; optionally turn into continuous mode. 
   bool  updateScreenAsyncT4(bool update_cont = false);  // T4.x call to say update the screen; optionally turn into continuous mode. 
+  bool changeAsyncClipArea(void) { _changeAsyncClipArea = true; return true; }
 #if defined(__IMXRT1062__)
   void flushFramebufferCache(void)
   {
@@ -783,13 +784,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   boolean asyncUpdateActive(void)  {return (_dma_state & ST77XX_DMA_ACTIVE);}
   void  initDMASettings(void);
   void setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone = false);
-  #else
+#else
   // added support to use optional Frame buffer
   void  setFrameBuffer(uint16_t *frame_buffer) {return;}
   uint8_t useFrameBuffer(boolean b) {return 0;};    // use the frame buffer?  First call will allocate
   void  freeFrameBuffer(void) {return;}      // explicit call to release the buffer
   void  updateScreen(void) {return;}       // call to say update the screen now. 
   bool  updateScreenAsync(bool update_cont = false, bool interrupt_every = false) {return false;}  // call to say update the screen optinoally turn into continuous mode. 
+  bool changeAsyncClipArea(void) { return false; }
   void  setAsyncInterruptPriority(int prio = 128) {return;}
   void  forceAsyncInterruptPriority(int prio = 128) {return;}
   void  setMaxAsyncLines(int lines) { return; }
@@ -803,13 +805,16 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint16_t subFrameCount() { return 0; }
   void setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone = false) {return;}
 
-  #endif
+#endif
 
-  void updateChangedAreasOnly(bool updateChangedOnly) {
-  #ifdef ENABLE_ST77XX_FRAMEBUFFER
+  void updateChangedAreasOnly(bool updateChangedOnly) 
+  {
+#ifdef ENABLE_ST77XX_FRAMEBUFFER
     _updateChangedAreasOnly = updateChangedOnly;
 #endif
   }
+
+  void clearChangedArea(void) { _clearChangedArea(); }
 
 
  protected:
@@ -1137,6 +1142,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void (*_frame_complete_callback)() = nullptr;
   bool _frame_callback_on_HalfDone = false;
   uint8_t ISRpriority = 128;
+  bool _changeAsyncClipArea = false;
 
   // intermediate buffer for partial frame updates:
   uint16_t* _intbData = nullptr;  // where the pixel data will be stored
@@ -1243,7 +1249,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void process_dma_interrupt(void);
 #endif
 
-  void clearChangedRange() {
+  void _clearChangedArea() {
   #ifdef ENABLE_ST77XX_FRAMEBUFFER
     _changed_min_x = 0x7fff;
     _changed_max_x = -1;
