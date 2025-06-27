@@ -468,7 +468,7 @@ typedef class ST7735DMA_Data_class {
       _dmatx.enable();    
     }
 
-    int endTries{0};
+    int endTries{0}; // debug helper
     void endUpdate(void)
     {
       __disable_irq();
@@ -483,9 +483,6 @@ typedef class ST7735DMA_Data_class {
         endTries++;
       } while (oldBITER != _dmatx.TCD->BITER);
       __enable_irq();
-      digitalWriteFast(1,0);
-      delayMicroseconds(endTries);
-      digitalWriteFast(1,1);
       asyncEnded = true;
     }
 
@@ -790,7 +787,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   }
   void  setMaxAsyncLines(int lines) { _setMaxAsyncLines(lines); }
   int getMaxFrameCount(void) { return _dma_data[_spi_num].getFrameCount(); } // frames per complete update
-  int getEndUpdateTries(void) { return _dma_data[_spi_num].endTries; }
+  int getEndUpdateTries(void) { return _dma_data[_spi_num].endTries; } // debug helper
 #endif // defined(__IMXRT1062__)
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // stop a continuous update

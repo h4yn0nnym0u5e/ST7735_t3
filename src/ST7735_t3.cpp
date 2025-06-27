@@ -4102,7 +4102,6 @@ extern void dumpDMA_TCD(DMABaseClass *dmabc);
  * - do mid-trnsaction breaks if configured
  */
 void ST7735_t3::process_dma_interrupt(void) {
-digitalWriteFast(0,1);
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, HIGH);
 #endif
@@ -4422,7 +4421,6 @@ digitalWriteFast(0,1);
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
-digitalWriteFast(0,0);
 }
 
 //=======================================================================
@@ -5147,8 +5145,6 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the 
 }	
 
 void ST7735_t3::endUpdateAsync() {
-digitalWriteFast(1,1);
-
 	// make sure it is on
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
 	if (_dma_state & ST77XX_DMA_CONT) {
@@ -5161,8 +5157,6 @@ digitalWriteFast(1,1);
 		_dma_data[_spi_num].endUpdate(); // stop after current chunk
 		_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
 #endif
-digitalWriteFast(1,0);
-
 	}
 #endif // ENABLE_ST77XX_FRAMEBUFFER
 }
@@ -5178,8 +5172,6 @@ void ST7735_t3::waitUpdateAsyncComplete(void)
 	{
 		// asm volatile("wfi");
 		yield(); // could be many milliseconds...
-		if (micros() - start > 200'000)
-			digitalWriteFast(2,1);
 	};
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, LOW);

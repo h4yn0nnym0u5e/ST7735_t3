@@ -1046,7 +1046,10 @@ void loop()
         {
           elapsedMicros t = 0;
           bool areaChanged = false;
-          uint32_t delayOnStop = random(1100);
+          // uint32_t delayOnStop = random(60);
+          static uint32_t delayOnStop = 0;
+          if (++delayOnStop > 60)
+            delayOnStop = 0;
 
           while (t < timeLimit) // for a while
           {
@@ -1100,7 +1103,7 @@ void loop()
           while (!frameCompleted)
             ;//delay(1); // a bit of time to allow last update to appear
           Serial.printf("Stop async update after %dus: ", delayOnStop);
-          digitalWriteFast(1,1); // could end async now, but...
+          // digitalWriteFast(1,1); // could end async now, but...
           delayMicroseconds(delayOnStop); // ... wait a while
           t = 0;
           tft.endUpdateAsync();
@@ -1121,7 +1124,7 @@ void loop()
             }
           }
           /*/
-          digitalWriteFast(2,0);
+          //digitalWriteFast(2,0);
           tft.waitUpdateAsyncComplete();
           //*/
 
