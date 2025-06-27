@@ -26,7 +26,7 @@
  *  9 = async frame buffer, update changed range
  * 10 = async frame buffer in PSRAM, update changed range
  * 11 = async frame buffer, update clip rectangle, continuous
- * 12 = async frame buffer, continuous, changing clip
+ * 12 = async frame buffer, continuous, changing clip rectangle
  * 13 = async frame buffer, continuous, update changed range
  */
 #define UPDATE_MODE 13
@@ -423,9 +423,9 @@ void setup() {
   
   // Set up frame complete callback.
   // Do this before we set the interrupt priority, because
-  // that initiialises DMA and this clears the DMA init flag,
+  // that initialises DMA and this clears the DMA init flag,
   // for some reason 
-  tft.setFrameCompleteCB(frameCompleteFn);
+  tft.setFrameCompleteCB(frameCompleteFn, true);
 
   // Lower the DMA interrupt priority so audio works OK.
   // This MUST be done before the first attempt to do
@@ -547,11 +547,28 @@ uint16_t nextColour(void)
 
 //------------------------------------------------------------------------
 volatile bool frameCompleted;
-volatile int completedFrames;
+volatile int completedFrames, halfFrames;
+volatile uint32_t startedAt, halfFrameAt, fullFrameAt;
 void frameCompleteFn(void)
 {
-  frameCompleted = true;
-  completedFrames++;
+  if (tft.subFrameCount())
+  {
+    halfFrames++;
+    halfFrameAt = micros();
+  }
+  else    
+  {
+    frameCompleted = true;
+    completedFrames++;
+    fullFrameAt = micros();
+  }
+}
+
+
+void reportFrameTimes(void)
+{
+  Serial.printf("Callbacks: half @ %dus, full @ %dus\n", 
+                halfFrameAt - startedAt, fullFrameAt - startedAt);
 }
 
 //------------------------------------------------------------------------
@@ -822,7 +839,7 @@ void run_async_check(const char* name, uint32_t num)
 #if 9 == UPDATE_MODE || 10 == UPDATE_MODE
   #define RUN_CHECK(n)  run_async_check(#n,check_##n())
 #else
-  #define RUN_CHECK(n) Serial.printf("Check " #n ": %d\n", check_##n())
+  #define RUN_CHECK(n) Serial.printf("%9d: check " #n ": %d\n", millis(), check_##n())
 #endif // 9 or 10 == UPDATE_MODE
 
 //=================================================================================
@@ -851,6 +868,8 @@ void serialWait(void)
     delay(2);
   }
 }
+
+
 void loop() 
 {
   if (playSdWav1.isPlaying() == false) 
@@ -893,6 +912,8 @@ void loop()
 
     whichBox = 0; // re-start clipped boxes in update mode 8
     completedFrames = 0; // and completed frames
+    halfFrames = 0;
+    startedAt = micros();
     
     switch (UPDATE_MODE)
     {
@@ -906,7 +927,10 @@ void loop()
       case 2:
       case 3:
       case 5:
-        Serial.printf("Async start was %sOK\n",tft.updateScreenAsync(3 == UPDATE_MODE)?"":"not ");
+        Serial.printf("Async start was %sOK; %d chunks/frame\n",
+                       tft.updateScreenAsync(3 == UPDATE_MODE)?"":"not ",
+                       tft.getMaxFrameCount()
+                      );
         asyncTime = 0;
         asyncStarted=true;
         delay(10);
@@ -914,8 +938,10 @@ void loop()
 
       case 6:
       case 7:
-        Serial.printf("Async start was %sOK\n",
-            tft.updateScreenAsync(7 == UPDATE_MODE,true)?"":"not ");
+        Serial.printf("Async start was %sOK; %d chunks/frame\n",
+            tft.updateScreenAsync(7 == UPDATE_MODE,true)?"":"not ",
+            tft.getMaxFrameCount()
+           );
         asyncTime = 0;
         asyncStarted=true;
         delay(10);
@@ -931,16 +957,23 @@ void loop()
       case 11:
       case 12:
       case 13:
-          // update whole screen to start with
-        tft.updateScreenAsync(false,true);
+        // update whole screen to start with
+        Serial.printf("Whole-screen async start was %sOK; %d chunks/frame\n",
+                      tft.updateScreenAsync(false,true)?"":"not ",
+                      tft.getMaxFrameCount()
+                    );
         tft.waitUpdateAsyncComplete(); // wait for that to finish
+        reportFrameTimes();
         delay(4);
 
         // now start a continuous update of part of the screen
         //tft.updateChangedAreasOnly(true);
         tft.setClipRect(SQ*3, SQ+96, 80, 80);
-        Serial.printf("Async start was %sOK\n",
-          tft.updateScreenAsync(true,true,true)?"":"not ");
+        Serial.printf("Async start was %sOK; %d chunks/frame\n",
+                      tft.updateScreenAsync(true,true,true)?"":"not ",
+                      tft.getMaxFrameCount()
+                    );
+        startedAt = micros();
         asyncStarted = true;
         asyncTime = 0;
         break;
@@ -948,7 +981,10 @@ void loop()
 
 #if  defined ST77XX_BLACK
       case 4:
-        Serial.printf("Async start was %sOK\n",tft.updateScreenAsyncT4()?"":"not ");
+        Serial.printf("Async start was %sOK; %d chunks/frame\n",
+                      tft.updateScreenAsyncT4()?"":"not ",
+                      tft.getMaxFrameCount()
+                    );
         asyncTime = 0;
         asyncStarted=true;
         msecs = 999999;
@@ -1009,6 +1045,8 @@ void loop()
         case 13:
         {
           elapsedMicros t = 0;
+          bool areaChanged = false;
+          uint32_t delayOnStop = random(1100);
 
           while (t < timeLimit) // for a while
           {
@@ -1016,11 +1054,22 @@ void loop()
             if (frameCompleted)
             {
               frameCompleted = false;
+              
+              reportFrameTimes();
+              startedAt = micros();
+      
+              if (areaChanged)
+              {
+                areaChanged = false;
+                Serial.printf("Now %d chunks/frame\n", tft.getMaxFrameCount());
+              }
 
               if (12 == UPDATE_MODE && 7 == completedFrames)
               {
-                tft.changeAsyncClipArea();
                 tft.setClipRect(SQ*2, SQ+96, 160, 80);
+                tft.changeAsyncClipArea();
+                areaChanged = true;
+                Serial.println("Set clip rectangle and change async area");
               }
 
               if (13 == UPDATE_MODE)
@@ -1029,12 +1078,15 @@ void loop()
                 {
                   case 7:
                     tft.setClipRect(SQ*2, SQ+96, 160, 80);
+                    Serial.println("Set clip rectangle");
                     tft.clearChangedArea();
                     break;
 
                   case 8:
                     tft.updateChangedAreasOnly(true);
                     tft.changeAsyncClipArea();
+                    areaChanged = true;
+                    Serial.println("Change async area");
                     break;
                 }
               }
@@ -1046,13 +1098,36 @@ void loop()
           }
 
           while (!frameCompleted)
-            delay(1); // a bit of time to allow last update to appear
-          Serial.print("Stop async update: ");
+            ;//delay(1); // a bit of time to allow last update to appear
+          Serial.printf("Stop async update after %dus: ", delayOnStop);
+          digitalWriteFast(1,1); // could end async now, but...
+          delayMicroseconds(delayOnStop); // ... wait a while
           t = 0;
           tft.endUpdateAsync();
+          /*
+          // Issues with stopping: see what the state is doing
+          uint8_t st=0x80;
+          while (st & 0x80)
+          {
+            st = tft.asyncState();
+            Serial.printf("%02X\n",st);
+            if (t<10'000)
+              delayMicroseconds(500);
+            else
+            {
+              digitalWriteFast(2,1);
+              delay(250);              
+              digitalWriteFast(2,0);
+            }
+          }
+          /*/
+          digitalWriteFast(2,0);
           tft.waitUpdateAsyncComplete();
-          Serial.printf("took %dus; %d frames completed\n", 
-                        (int) t, completedFrames);
+          //*/
+
+          Serial.printf("took %dus, %d tries; %d frames, %d half-frames completed\n", 
+                        (int) t, tft.getEndUpdateTries(),
+                        completedFrames, halfFrames);
           tft.updateChangedAreasOnly(false); // just in case
           tft.setClipRect(); // ditto
           asyncStarted = false;

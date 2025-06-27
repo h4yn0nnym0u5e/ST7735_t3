@@ -468,9 +468,24 @@ typedef class ST7735DMA_Data_class {
       _dmatx.enable();    
     }
 
+    int endTries{0};
     void endUpdate(void)
     {
-      _dmatx.disableOnCompletion(); 
+      __disable_irq();
+      uint32_t oldBITER = _dmatx.TCD->BITER;
+      endTries = 0;
+      do 
+      {
+        oldBITER = _dmatx.TCD->BITER;
+        _dmatx.TCD->CSR &= ~DMA_TCD_CSR_ESG; // prevent scatter-gather
+        _dmatx.disableOnCompletion();   // stop at end of current transaction
+        _dmatx.interruptAtCompletion(); // and interrupt so we can tidy up
+        endTries++;
+      } while (oldBITER != _dmatx.TCD->BITER);
+      __enable_irq();
+      digitalWriteFast(1,0);
+      delayMicroseconds(endTries);
+      digitalWriteFast(1,1);
       asyncEnded = true;
     }
 
@@ -774,14 +789,17 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     _forceInterrupt(prio); 
   }
   void  setMaxAsyncLines(int lines) { _setMaxAsyncLines(lines); }
+  int getMaxFrameCount(void) { return _dma_data[_spi_num].getFrameCount(); } // frames per complete update
+  int getEndUpdateTries(void) { return _dma_data[_spi_num].endTries; }
 #endif // defined(__IMXRT1062__)
   void  waitUpdateAsyncComplete(void);
-  void  endUpdateAsync();      // Turn of the continueous mode fla
+  void  endUpdateAsync();      // stop a continuous update
   void  dumpDMASettings();
   uint16_t *getFrameBuffer() {return _pfbtft;}
   int32_t frameCount() {return _dma_frame_count; }
   uint16_t subFrameCount() { return _dma_sub_frame_count; }
   boolean asyncUpdateActive(void)  {return (_dma_state & ST77XX_DMA_ACTIVE);}
+  uint8_t asyncState(void) { return _dma_state; }
   void  initDMASettings(void);
   void setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone = false);
 #else

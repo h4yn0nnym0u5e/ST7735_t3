@@ -4102,6 +4102,7 @@ extern void dumpDMA_TCD(DMABaseClass *dmabc);
  * - do mid-trnsaction breaks if configured
  */
 void ST7735_t3::process_dma_interrupt(void) {
+digitalWriteFast(0,1);
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, HIGH);
 #endif
@@ -4149,20 +4150,20 @@ void ST7735_t3::process_dma_interrupt(void) {
 	DMAChannel&     dmatx = dmaData._dmatx;
 	bool userCallbackNeeded = false;
 	dmatx.clearInterrupt();
-digitalWriteFast(1,1);
-delayMicroseconds(1);
-digitalWriteFast(1,0);
+
 	if (0 == (_dma_state & ST77XX_DMA_CHAINED)) // if not chained
 		waitFIFOempty(); // defensive! About 1.8us..
-digitalWriteFast(1,1);
-		if (_frame_callback_on_HalfDone &&
-		(dmatx.TCD->SADDR >= dmaData._dmasettings[1].TCD->SADDR)) 
+
+	// check for half-frame interrupt callback
+	// not it will be executed after processing is complete
+	if (_frame_callback_on_HalfDone &&
+		_dma_frame_count == getMaxFrameCount() / 2) 
 	{
 		_dma_sub_frame_count = 1; // set as partial frame.
-		if (_frame_complete_callback)
-		(*_frame_complete_callback)();
+		userCallbackNeeded = true;
 		// Serial.print("-");
-	} else {
+	} // else 
+
 
 	// If chained, DMA is currently outputting this frame #,
 	// otherwise this is the frame # we want to start, 
@@ -4223,9 +4224,9 @@ digitalWriteFast(1,1);
 					 && 0 != (_dma_state & ST77XX_DMA_CONT)
 					   )
 					{
-digitalWriteFast(2,1);
 						if (_changeAsyncClipArea)
 						{
+							_changeAsyncClipArea = false;		
 							_prepareDMAwindow(x0,x1,y0,y1,bytesToOutput);
 							x1 -= 1;
 							y1 -= 1;
@@ -4246,10 +4247,8 @@ digitalWriteFast(2,1);
 									| LPSPI_TCR_FRAMESZ(15) 
 									| LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
 	
-//Serial.printf("window reset to %d,%d,%d,%d; %d bytes per chunk\n",x0, y0, x1, y1,bytesToOutput);
 						_dma_frame_count = 0;
 						userCallbackNeeded = true;
-digitalWriteFast(2,0);						
 					}
 
 					if (bytesToOutput > 0 // more to output - do rest of preparation
@@ -4298,12 +4297,13 @@ digitalWriteFast(2,0);
 			// set recently-completed frame ready for next chain
 			dmaData.setDMAnext(_dma_frame_count-1); // frame setting is % number of chunks
 			if (0 == _dma_frame_count % dmaData.getFrameCount())
+			{
+				_dma_sub_frame_count = 0;  // can't also be half-frame!
 				userCallbackNeeded = true;
+			}
 		}
 	} while (false);
 	
-
-    _dma_sub_frame_count = 0;
     // See if we are in continuous mode, or haven't done enough frames, and we haven't been stopped...
     //if (_dma_frame_count >= _dma_data[_spi_num].getFrameCount() && (_dma_state & ST77XX_DMA_CONT) == 0) 
 	if (!dmaData.isActive())
@@ -4341,20 +4341,19 @@ digitalWriteFast(2,0);
       _dma_state &= ~ST77XX_DMA_ACTIVE;
       _dmaActiveDisplay[_spi_num] = 0; 
 	  
+	  _dma_frame_count = 0;
 	  userCallbackNeeded = true;
-	} else {
-		/*
-      // Lets try to flush out memory
-      if (_frame_complete_callback)
-        (*_frame_complete_callback)();
-      else  if ((uint32_t)_pfbtft >= 0x20200000u)
-        arm_dcache_flush(_pfbtft, _count_pixels*2);
-		*/
-    }
-  }
+	}
+  
 
   if (userCallbackNeeded && nullptr != _frame_complete_callback)
+  {
+	if (0 == _dma_frame_count) // frame end...
+		_dma_sub_frame_count = 0; // ... not half-frame
   	(*_frame_complete_callback)();
+  }
+
+  _dma_sub_frame_count = 0;
 
   asm("dsb");
 #else
@@ -4419,10 +4418,11 @@ digitalWriteFast(2,0);
 		_dmatx.enable();
 	}
 #endif	// Teensy variant
-digitalWriteFast(1,0);
+
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, LOW);
 #endif
+digitalWriteFast(0,0);
 }
 
 //=======================================================================
@@ -4800,9 +4800,6 @@ void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2,
 								  int16_t& y1, int16_t& y2,
 								  uint32_t& bytesToWrite)
 {
-	bool usedClip = true;
-
-digitalWriteFast(0,1);	
 	if (_updateChangedAreasOnly)
 	{
 		x1 = _changed_min_x;
@@ -4810,7 +4807,6 @@ digitalWriteFast(0,1);
 		y1 = _changed_min_y;
 		y2 = _changed_max_y + 1;
 		_clearChangedArea();
-		usedClip = false;
 	}
 	else
 	{
@@ -4824,8 +4820,13 @@ digitalWriteFast(0,1);
 	uint32_t rows = y2 - y1; // number of rows to output
 	uint32_t rowBytes = (x2 - x1)*2;
 	uint32_t areaMem = rows * rowBytes;
+
+	_dma_data[_spi_num].setFrameCount(1); // probably untrue
 	if (areaMem > _intbSize) // can't do it all in one go...
+	{
 		rows = _intbSize / rowBytes; // ...do this many per frame
+		_dma_data[_spi_num].setFrameCount((y2-y1 + rows - 1)/rows);
+	}
 	// Use _dmasettings[0] to do memory-to-memory copy
 	_dma_data[_spi_num].setDMAmem2mem(0, 
 				_pfbtft + y1*_width + x1,
@@ -4833,10 +4834,6 @@ digitalWriteFast(0,1);
 				y2 - y1 
 				);
 	bytesToWrite = rows * rowBytes;	
-	_changeAsyncClipArea = false;		
-digitalWriteFast(0,0);		
-Serial.printf("Window is %04X,%04X,%04X,%04X; %d bytes; used %s area\n",
-	         x1,x2-1,y1,y2-1,bytesToWrite,usedClip?"clip":"changed");
 }
 
 // call to say update the screen now.
@@ -4955,6 +4952,8 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 			psrc = _intbData;
 			trigSrc = DMAMUX_SOURCE_MANUAL;
 		}
+		else // chunk count might have been broken - repair
+			_dma_data[_spi_num].setFrameCount((_width * _height) / COUNT_WORDS_WRITE);
 
 		_dma_data[_spi_num].setDMAone(snum, psrc, bytesToWrite, 2);
 		_dma_state |= ST77XX_DMA_IRQ_EVERY;
@@ -5148,6 +5147,8 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the 
 }	
 
 void ST7735_t3::endUpdateAsync() {
+digitalWriteFast(1,1);
+
 	// make sure it is on
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
 	if (_dma_state & ST77XX_DMA_CONT) {
@@ -5160,12 +5161,15 @@ void ST7735_t3::endUpdateAsync() {
 		_dma_data[_spi_num].endUpdate(); // stop after current chunk
 		_dma_frame_count = _dma_data[_spi_num].getFrameCount(); // force stop in next ISR
 #endif
+digitalWriteFast(1,0);
+
 	}
 #endif // ENABLE_ST77XX_FRAMEBUFFER
 }
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
+	uint32_t start = micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
 #endif
@@ -5174,6 +5178,8 @@ void ST7735_t3::waitUpdateAsyncComplete(void)
 	{
 		// asm volatile("wfi");
 		yield(); // could be many milliseconds...
+		if (micros() - start > 200'000)
+			digitalWriteFast(2,1);
 	};
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, LOW);
