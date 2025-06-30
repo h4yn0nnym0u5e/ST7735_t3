@@ -33,6 +33,8 @@
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
+#define IS_TEENSY4 (defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY41))
+
 const char* sbok="should be OK", 
            *xbrk="expected to be broken",
            *oops="says 'you're a numpty'";
@@ -44,6 +46,8 @@ const char* auok[] =
 
   oops, oops, oops, oops, oops, // oh dear...
 };
+
+
 //------------------------------------------------------------
 
 #if defined ST77XX_BLACK // see which TFT we're using
@@ -339,7 +343,12 @@ void printSetup(void)
       UPDATE_MODE, audioOK);
 }
 
+#if IS_TEENSY4
 extern uint32_t dma_channel_allocated_mask;
+#else
+extern uint16_t dma_channel_allocated_mask;
+#endif // IS_TEENSY4
+
 void printDMAchannel(void)
 {
 #if defined(CLASSES_UNPROTECTED)
@@ -366,10 +375,14 @@ void printDMAchannel(void)
 //---------------------------------------------------------------------------------
 void fbInPSRAM(void)
 {
+#if defined(ARDUINO_TEENSY41)  
   uint16_t* fb = (uint16_t*) extmem_malloc(tft.width() * tft.height() * 2);
+#else  
+  uint16_t* fb = (uint16_t*) malloc(tft.width() * tft.height() * 2);
+#endif // defined(ARDUINO_TEENSY41)  
   if (nullptr != fb)
   {
-    Serial.println("Allocated frame buffer in PSRAM");
+    Serial.printf("Allocated frame buffer in ",(uint32_t) fb >= 0x7000'0000?"PSRAM":"heap");
     tft.setFrameBuffer(fb);
   }
 }
@@ -427,6 +440,7 @@ void setup() {
   // for some reason 
   tft.setFrameCompleteCB(frameCompleteFn, true);
 
+#if IS_TEENSY4  
   // Lower the DMA interrupt priority so audio works OK.
   // This MUST be done before the first attempt to do
   // an asynchronous screen update.
@@ -440,6 +454,8 @@ void setup() {
   /*/
   tft.setMaxAsyncLines(2);   // 160 updates of 2 lines each, ~960us
   //*/
+#endif // IS_TEENSY4  
+
 #else  
   tft.begin();
   tft.setRotation(ROTATE);       // Rotates screen to match the baseboard orientation
@@ -575,6 +591,23 @@ void reportFrameTimes(void)
 uint32_t check_(void)
 {
   checkMicros = 0;
+
+  return checkMicros;
+}
+
+//------------------------------------------------------------------------
+uint32_t check_triangles(void)
+{
+  checkMicros = 0;
+
+  tft.setOrigin(SQ*7/2+2,SQ+2);
+  int hw = SQ*3/4-2, hh = SQ/2-2;
+
+  tft.fillTriangle(0,0,    hw*2,0,  hw*2,hh*2, nextColour());
+  tft.fillTriangle(0,0,    0,hh*2,  hw,hh,     nextColour());
+  tft.fillTriangle(0,hh*2, hw,hh,   hw*2,hh*2, nextColour());
+
+  tft.setOrigin();
 
   return checkMicros;
 }
@@ -909,6 +942,7 @@ void loop()
     RUN_CHECK(writeRect1BPP);
     RUN_CHECK(writeRect2BPP);
     RUN_CHECK(writeRect4BPP);
+    RUN_CHECK(triangles);
 
     whichBox = 0; // re-start clipped boxes in update mode 8
     completedFrames = 0; // and completed frames

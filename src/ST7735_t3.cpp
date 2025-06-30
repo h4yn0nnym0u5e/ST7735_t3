@@ -4798,6 +4798,7 @@ void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2,
 								  int16_t& y1, int16_t& y2,
 								  uint32_t& bytesToWrite)
 {
+#if defined(__IMXRT1062__)  // Teensy 4.x only
 	if (_updateChangedAreasOnly)
 	{
 		x1 = _changed_min_x;
@@ -4832,6 +4833,7 @@ void ST7735_t3::_prepareDMAwindow(int16_t& x1, int16_t& x2,
 				y2 - y1 
 				);
 	bytesToWrite = rows * rowBytes;	
+#endif // defined(__IMXRT1062__) 
 }
 
 // call to say update the screen now.
@@ -5163,7 +5165,6 @@ void ST7735_t3::endUpdateAsync() {
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
-	uint32_t start = micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
 #endif

@@ -788,6 +788,12 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void  setMaxAsyncLines(int lines) { _setMaxAsyncLines(lines); }
   int getMaxFrameCount(void) { return _dma_data[_spi_num].getFrameCount(); } // frames per complete update
   int getEndUpdateTries(void) { return _dma_data[_spi_num].endTries; } // debug helper
+#else // dummy functions for Teensy 3.x
+  void setAsyncInterruptPriority(int prio = 128) {}
+  void  setMaxAsyncLines(int lines) {}
+  int getMaxFrameCount(void) { return -1; }
+  void flushFramebufferCache(void) {}
+  int getEndUpdateTries(void) { return -1; }
 #endif // defined(__IMXRT1062__)
   void  waitUpdateAsyncComplete(void);
   void  endUpdateAsync();      // stop a continuous update
