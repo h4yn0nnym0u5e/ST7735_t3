@@ -525,7 +525,7 @@ typedef class ST7735DMA_Data_class {
 class ST7735_t3 : public Print
 {
   // record of display window setting
-  struct {int16_t x0, y0, x1, y1;} dw;
+  struct {int16_t x0, y0, x1, y1;} dw{-32767, -32767, -32767, -32767};
   uint8_t _useIntermediateBuffer(void* m, size_t s, bool w=false);  // use the intermediate buffer?  First call will allocate
   void _prepareDMAwindow(int16_t& x1, int16_t& x2, 
                          int16_t& y1, int16_t& y2,
@@ -546,35 +546,88 @@ class ST7735_t3 : public Print
            drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color),
            drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color),
            fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
-  void setSPISpeed(int freq = -1, uint8_t mode=SPI_MODE0) { _spiSettings = SPISettings(freq<0?ST7735_SPICLOCK:freq, MSBFIRST, mode); }
+
+           // Gradient and support methods, lifted bodily from the 
+           // ILI9341 library
+           void fillRectHGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  uint16_t color1, uint16_t color2);
+           void fillRectVGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  uint16_t color1, uint16_t color2);
+           void fillScreenVGradient(uint16_t color1, uint16_t color2);
+           void fillScreenHGradient(uint16_t color1, uint16_t color2);  
+            // color565toRGB		- converts 565 format 16 bit color to RGB
+            static void color565toRGB(uint16_t color, uint8_t &r, uint8_t &g,
+                                      uint8_t &b) 
+            { 
+              r = (color >> 8) & 0x00F8;
+              g = (color >> 3) & 0x00FC;
+              b = (color << 3) & 0x00F8;
+            }
+
+            // color565toRGB14		- converts 16 bit 565 format color to 14 bit RGB (2
+            // bits clear for math and sign)
+            // returns 00rrrrr000000000,00gggggg00000000,00bbbbb000000000
+            // thus not overloading sign, and allowing up to double for additions for
+            // fixed point delta
+            static void color565toRGB14(uint16_t color, int16_t &r, int16_t &g,
+                                        int16_t &b) 
+            {
+              r = (color >> 2) & 0x3E00;
+              g = (color << 3) & 0x3F00;
+              b = (color << 9) & 0x3E00;
+            }
+
+            // RGB14tocolor565		- converts 14 bit RGB back to 16 bit 565 format
+            // color
+            static uint16_t RGB14tocolor565(int16_t r, int16_t g, int16_t b) 
+            {
+              return (((r & 0x3E00) << 2) 
+                    | ((g & 0x3F00) >> 3) 
+                    | ((b & 0x3E00) >> 9));
+            }
+
+            
+            void setSPISpeed(int freq = -1, uint8_t mode=SPI_MODE0) { _spiSettings = SPISettings(freq<0?ST7735_SPICLOCK:freq, MSBFIRST, mode); }
    inline void fillWindow(uint16_t color) {fillScreen(color);}
   virtual void setRotation(uint8_t r);
   void     invertDisplay(boolean i);
   void     setRowColStart(uint16_t x, uint16_t y);
   uint16_t  rowStart() {return _rowstart;}
   uint16_t  colStart() {return _colstart;}
-  void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1000000 * us;}
+  void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1'000'000 * us;}
   void enableYieldInMidTransaction(bool en) { yieldInMidTransaction = en; }
 uint32_t maxTransactionLengthSeen; // in CPU cycles
   int getFrameCount(int bus) { return _dma_frame_count; }
 
   void setAddr(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     __attribute__((always_inline)) {
-        dw = {(int16_t) x0, (int16_t) y0, (int16_t) x1, (int16_t) y1};
-        writecommand(ST7735_CASET); // Column addr set
-        writedata16(x0+_xstart);   // XSTART 
-        writedata16(x1+_xstart);   // XEND
-        writecommand(ST7735_RASET); // Row addr set
-        writedata16(y0+_ystart);   // YSTART
-        writedata16(y1+_ystart);   // YEND
+
+    if (x0 != dw.x0 || x1 != dw.x1)
+    {
+      writecommand(ST7735_CASET); // Column addr set
+      writedata16(x0+_xstart);    // XSTART 
+      writedata16(x1+_xstart);    // XEND
+      dw.x0 = x0;
+      dw.x1 = x1;
+    }
+
+    if (y0 != dw.y0 || y1 != dw.y1)
+    {
+      writecommand(ST7735_RASET); // Row addr set
+      writedata16(y0+_ystart);    // YSTART
+      writedata16(y1+_ystart);    // YEND
+      dw.y0 = y0;
+      dw.y1 = y1;
+    }
   }
+
   void getAddr(int16_t& x0, int16_t& y0, int16_t& x1, int16_t& y1)
   {
     x0 = dw.x0; y0 = dw.y0; x1 = dw.x1; y1 = dw.y1;
   }
 
   ////
-  	// from Adafruit_GFX.h
+  // from Adafruit_GFX.h
 	int16_t width(void) const { return _width; };
 	int16_t height(void) const { return _height; }
 	uint8_t getRotation(void);

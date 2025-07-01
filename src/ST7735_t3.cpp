@@ -248,15 +248,15 @@ void ST7735_t3::writedata16_last(uint16_t d)
 
 void ST7735_t3::setBitrate(uint32_t n)
 {
-	if (n >= 24000000) {
+	if (n >= 24'000'000) {
 		ctar = CTAR_24MHz;
-	} else if (n >= 16000000) {
+	} else if (n >= 16'000'000) {
 		ctar = CTAR_16MHz;
-	} else if (n >= 12000000) {
+	} else if (n >= 12'000'000) {
 		ctar = CTAR_12MHz;
-	} else if (n >= 8000000) {
+	} else if (n >= 8'000'000) {
 		ctar = CTAR_8MHz;
-	} else if (n >= 6000000) {
+	} else if (n >= 6'000'000) {
 		ctar = CTAR_6MHz;
 	} else {
 		ctar = CTAR_4MHz;
@@ -375,11 +375,11 @@ void ST7735_t3::writedata16_last(uint16_t d)
 
 void ST7735_t3::setBitrate(uint32_t n)
 {
-	if (n >= 8000000) {
+	if (n >= 8'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV2);
-	} else if (n >= 4000000) {
+	} else if (n >= 4'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV4);
-	} else if (n >= 2000000) {
+	} else if (n >= 2'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV8);
 	} else {
 		SPI.setClockDivider(SPI_CLOCK_DIV16);
@@ -507,11 +507,11 @@ void ST7735_t3::writedata16_last(uint16_t d)
 
 void ST7735_t3::setBitrate(uint32_t n)
 {
-	if (n >= 8000000) {
+	if (n >= 8'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV2);
-	} else if (n >= 4000000) {
+	} else if (n >= 4'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV4);
-	} else if (n >= 2000000) {
+	} else if (n >= 2'000'000) {
 		SPI.setClockDivider(SPI_CLOCK_DIV8);
 	} else {
 		SPI.setClockDivider(SPI_CLOCK_DIV16);
@@ -1204,6 +1204,207 @@ void ST7735_t3::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 	}
 }
 
+// Copied from ILI9341 library:
+// Additional graphics routines by Tim Trzepacz, SoftEgg LLC added December 2015
+//
+// Gradient support
+//----------------
+//		fillRectVGradient	- fills area with vertical gradient
+//		fillRectHGradient	- fills area with horizontal gradient
+//		fillScreenVGradient - fills screen with vertical gradient
+// 	fillScreenHGradient - fills screen with horizontal gradient
+
+// Additional Color Support
+//------------------------
+//		color565toRGB		- converts 565 format 16 bit color to RGB
+//		color565toRGB14		- converts 16 bit 565 format color to 14 bit RGB (2 bits clear for math and sign)
+//		RGB14tocolor565		- converts 14 bit RGB back to 16 bit 565 format color
+
+// fillRectVGradient	- fills area with vertical gradient
+void ST7735_t3::fillRectVGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                    uint16_t color1, uint16_t color2) {
+  x += _originx;
+  y += _originy;
+
+  // Rectangular clipping
+  if ((x >= _displayclipx2) || (y >= _displayclipy2))
+    return;
+  if (x < _displayclipx1) {
+    w -= (_displayclipx1 - x);
+    x = _displayclipx1;
+  }
+  if (y < _displayclipy1) {
+    h -= (_displayclipy1 - y);
+    y = _displayclipy1;
+  }
+  if ((x + w - 1) >= _displayclipx2)
+    w = _displayclipx2 - x;
+  if ((y + h - 1) >= _displayclipy2)
+    h = _displayclipy2 - y;
+
+  int16_t r1, g1, b1, r2, g2, b2, dr, dg, db, r, g, b;
+  color565toRGB14(color1, r1, g1, b1);
+  color565toRGB14(color2, r2, g2, b2);
+  dr = (r2 - r1) / h;
+  dg = (g2 - g1) / h;
+  db = (b2 - b1) / h;
+  r = r1;
+  g = g1;
+  b = b1;
+
+#ifdef ENABLE_ST77XX_FRAMEBUFFER
+  if (_use_fbtft) {
+    updateChangedRange(
+        x, y, w, h); // update the range of the screen that has been changed;
+    if ((x & 1) || (w & 1)) {
+      uint16_t *pfbPixel_row = &_pfbtft[y * _width + x];
+      for (; h > 0; h--) {
+        uint16_t color = RGB14tocolor565(r, g, b);
+        uint16_t *pfbPixel = pfbPixel_row;
+        for (int i = 0; i < w; i++) {
+          *pfbPixel++ = color;
+        }
+        r += dr;
+        g += dg;
+        b += db;
+        pfbPixel_row += _width;
+      }
+    } else {
+      // Horizontal is even number so try 32 bit writes instead
+      uint32_t *pfbPixel_row =
+          (uint32_t *)((uint16_t *)&_pfbtft[y * _width + x]);
+      w = w / 2; // only iterate half the times
+      for (; h > 0; h--) {
+        uint32_t *pfbPixel = pfbPixel_row;
+        uint16_t color = RGB14tocolor565(r, g, b);
+        uint32_t color32 = (color << 16) | color;
+        for (int i = 0; i < w; i++) {
+          *pfbPixel++ = color32;
+        }
+        pfbPixel_row += (_width / 2);
+        r += dr;
+        g += dg;
+        b += db;
+      }
+    }
+  } else
+#endif
+  {
+    beginSPITransaction();
+    setAddr(x, y, x + w - 1, y + h - 1);
+	uint16_t x0=x, y0=y;
+
+    writecommand(ST7735_RAMWR);
+    for (y = h; y > 0; y--) 
+	{
+      uint16_t color = RGB14tocolor565(r, g, b);
+
+      for (x = w; x > 1; x--)
+        writedata16(color);
+      writedata16_last(color);
+
+	  y0++;
+	  midTransaction(x0,y0,x0+w-1,y0+y-2);
+
+      r += dr;
+      g += dg;
+      b += db;
+    }
+    endSPITransaction();
+  }
+}
+
+// fillRectHGradient	- fills area with horizontal gradient
+void ST7735_t3::fillRectHGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                    uint16_t color1, uint16_t color2) {
+  x += _originx;
+  y += _originy;
+
+  // Rectangular clipping
+  if ((x >= _displayclipx2) || (y >= _displayclipy2))
+    return;
+  if (x < _displayclipx1) {
+    w -= (_displayclipx1 - x);
+    x = _displayclipx1;
+  }
+  if (y < _displayclipy1) {
+    h -= (_displayclipy1 - y);
+    y = _displayclipy1;
+  }
+  if ((x + w - 1) >= _displayclipx2)
+    w = _displayclipx2 - x;
+  if ((y + h - 1) >= _displayclipy2)
+    h = _displayclipy2 - y;
+
+  int16_t r1, g1, b1, r2, g2, b2, dr, dg, db, r, g, b;
+  uint16_t color;
+  color565toRGB14(color1, r1, g1, b1);
+  color565toRGB14(color2, r2, g2, b2);
+  dr = (r2 - r1) / w;
+  dg = (g2 - g1) / w;
+  db = (b2 - b1) / w;
+  r = r1;
+  g = g1;
+  b = b1;
+#ifdef ENABLE_ST77XX_FRAMEBUFFER
+  if (_use_fbtft) {
+    updateChangedRange(
+        x, y, w, h); // update the range of the screen that has been changed;
+    uint16_t *pfbPixel_row = &_pfbtft[y * _width + x];
+    for (; h > 0; h--) {
+      uint16_t *pfbPixel = pfbPixel_row;
+      for (int i = 0; i < w; i++) {
+        *pfbPixel++ = RGB14tocolor565(r, g, b);
+        r += dr;
+        g += dg;
+        b += db;
+      }
+      pfbPixel_row += _width;
+      r = r1;
+      g = g1;
+      b = b1;
+    }
+  } else
+#endif
+  {
+    beginSPITransaction();
+    setAddr(x, y, x + w - 1, y + h - 1);
+    writecommand(ST7735_RAMWR);
+	uint16_t x0=x, y0=y;
+
+    for (y = h; y > 0; y--) 
+	{
+      for (x = w; x > 1; x--) 
+	  {
+        color = RGB14tocolor565(r, g, b);
+        writedata16(color);
+        r += dr;
+        g += dg;
+        b += db;
+      }
+      color = RGB14tocolor565(r, g, b);
+      writedata16_last(color);
+
+	  y0++;
+	  midTransaction(x0,y0,x0+w-1,y0+y-2);
+
+      r = r1;
+      g = g1;
+      b = b1;
+    }
+    endSPITransaction();
+  }
+}
+
+// fillScreenVGradient - fills screen with vertical gradient
+void ST7735_t3::fillScreenVGradient(uint16_t color1, uint16_t color2) {
+  fillRectVGradient(0, 0, _width, _height, color1, color2);
+}
+
+// fillScreenHGradient - fills screen with horizontal gradient
+void ST7735_t3::fillScreenHGradient(uint16_t color1, uint16_t color2) {
+  fillRectHGradient(0, 0, _width, _height, color1, color2);
+}
 
 #define MADCTL_MY  0x80
 #define MADCTL_MX  0x40

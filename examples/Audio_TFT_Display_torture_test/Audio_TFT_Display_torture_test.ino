@@ -3,6 +3,23 @@
  * which each take a long time to execute on the SPI bus,
  * while playing audio from the SD card (which claims to
  * use SPI, although in fact it doesn't).
+ * 
+ * Benchmarking notes
+ * Based on 16MHz SPI clock, we'd expect 1 pixel/us, but it
+ * appears there's some overhead, so a 16-bit word actually
+ * takes 1.0375us to emit. Thus a full 480x320 display takes
+ * about 159.36ms instead of 153.6ms.
+ * 
+ * This would appear to be due to the DBT field in the SPI CCR.
+ * 
+ * Screen in one go:        159.36ms
+ * Interrupt every 2 lines: 161.65ms (+1.4%)
+ * 
+ * With a 1920-pixel (2-line) intermediate buffer, which
+ * also needs an interrupt every time the buffer is used:
+ * Expect 1920 pixels:          1992us
+ * Mem2Mem and window overhead:  110us
+ * Total:                       2102us (+5.5%)
  */
 //------------------------------------------------------------
 // Pick your TFT here:
@@ -425,8 +442,8 @@ void setup() {
     
   Serial.begin(9600);
   delay(100);
-  //tft.setClock(16000000);
-    // Setup the LCD screen
+  //tft.setClock(16'000'000);
+  // Set up the LCD screen
 #if defined ST77XX_BLACK
   tft.init(320, 480);
   tft.setRotation(ROTATE);         // Rotates screen to match the baseboard orientation
@@ -440,7 +457,7 @@ void setup() {
   // for some reason 
   tft.setFrameCompleteCB(frameCompleteFn, true);
 
-#if IS_TEENSY4  
+#if IS_TEENSY4
   // Lower the DMA interrupt priority so audio works OK.
   // This MUST be done before the first attempt to do
   // an asynchronous screen update.
@@ -466,6 +483,7 @@ void setup() {
   tft.invertDisplay(INVERT_DISPLAY);  // LCD may require colors to be inverted
   tft.setTextWrap(false);
 
+  // do something visible
   tft.fillScreen(ST7735_BLACK);
   fillGrid(40);
 
@@ -487,7 +505,7 @@ void setup() {
   }
 
 #if defined ST77XX_BLACK
-  //tft.setMaxTransaction(100000);  // deliberately break SD playback!
+  //tft.setMaxTransaction(100'000);  // deliberately break SD playback!
   tft.setMaxTransaction(1400);      // default is 1000, but this should be OK
   tft.enableYieldInMidTransaction(true); // does a bonus yield() if a mid-transaction break occurs
 #endif // defined ST77XX_BLACK
@@ -524,7 +542,13 @@ void setup() {
     case 0:
       break;
   }
-  fillGrid(40);
+
+  // put startup image in framebuffer
+  showGamut();
+  fillGrid(40,ST7735_BLACK);
+
+  // transfer to display
+  tft.updateScreen();
 
   printSetup();
   
@@ -618,6 +642,26 @@ uint32_t check_fillRect(void)
   checkMicros = 0;
 
   tft.fillRect(0,0,SQ,SQ,nextColour());
+
+  return checkMicros;
+}
+
+//------------------------------------------------------------------------
+uint32_t check_fillVGradient(void)
+{
+  checkMicros = 0;
+
+  tft.fillRectVGradient(SQ*5+2,2,SQ-4,SQ*3-4,nextColour(),nextColour());
+
+  return checkMicros;
+}
+
+//------------------------------------------------------------------------
+uint32_t check_fillHGradient(void)
+{
+  checkMicros = 0;
+
+  tft.fillRectHGradient(SQ*5/4,SQ*13/4,SQ*4+17,SQ/2,nextColour(),nextColour());
 
   return checkMicros;
 }
@@ -801,6 +845,7 @@ uint32_t check_updateScreen(void)
   tft.updateScreen();
   return checkMicros;
 }
+
 //------------------------------------------------------------------------
 int whichBox;
 uint32_t check_updateClip(void)
@@ -821,11 +866,11 @@ uint32_t check_updateClip(void)
       break;
 
     case 2:
-      tft.setClipRect(0,0,480,40);
+      tft.setClipRect(0,0,397,40);
       break;
 
     case 3:
-      tft.setClipRect(40,120,440,80);
+      tft.setClipRect(40,120,359,80);
       break;
 
     case 4:
@@ -833,11 +878,11 @@ uint32_t check_updateClip(void)
       break;
 
     case 5:
-      tft.setClipRect(120,40,307,80);
+      tft.setClipRect(120,40,279,80);
       break;
 
     case 6:
-      tft.setClipRect(260,200,67,83);
+      tft.setClipRect(260,200,67,57);
       break;
   
     case 7:
@@ -846,6 +891,14 @@ uint32_t check_updateClip(void)
   
     case 8:
       tft.setClipRect(80,240,180,17);
+      break;
+
+    case 9:
+      tft.setClipRect(SQ*5/4,SQ*13/4,SQ*4+17,SQ/2);
+      break;
+
+    case 10:
+      tft.setClipRect(SQ*5+2,2,SQ-4,SQ*3-4);
       break;
   }
 
@@ -857,7 +910,9 @@ uint32_t check_updateClip(void)
   return whichBox-1;
 }
 
+
 //========================================================================
+bool checksAreRun;
 elapsedMicros asyncTime;
 void run_async_check(const char* name, uint32_t num)
 {
@@ -869,11 +924,43 @@ void run_async_check(const char* name, uint32_t num)
   Serial.printf(" took %dus\n",(int) asyncTime);
 }
 
+
 #if 9 == UPDATE_MODE || 10 == UPDATE_MODE
   #define RUN_CHECK(n)  run_async_check(#n,check_##n())
 #else
   #define RUN_CHECK(n) Serial.printf("%9d: check " #n ": %d\n", millis(), check_##n())
 #endif // 9 or 10 == UPDATE_MODE
+
+
+void runAllChecks(bool checkAsyncItems = true)
+{
+  Serial.println("========================");
+  asyncTime = 0;
+  tft.setClipRect();
+  RUN_CHECK(fillRect);
+  RUN_CHECK(fillVGradient);
+  RUN_CHECK(fillHGradient);
+  RUN_CHECK(drawChar_bg);
+  RUN_CHECK(drawChar);
+  RUN_CHECK(drawFontChar_bg);
+  RUN_CHECK(drawFontChar);
+  RUN_CHECK(drawAAChar_bg);
+  // RUN_CHECK(drawAAChar);
+  RUN_CHECK(writeRect);
+  RUN_CHECK(writeSubImageRect);
+  RUN_CHECK(writeSubImageRectBytesReversed);
+  RUN_CHECK(writeRect1BPP);
+  if (checkAsyncItems)
+  {
+    RUN_CHECK(writeRect2BPP);
+    RUN_CHECK(writeRect4BPP);
+  }
+  RUN_CHECK(triangles);
+
+  Serial.printf("Drawing took %dus\n",(uint32_t) asyncTime);
+  checksAreRun = true;
+}
+
 
 //=================================================================================
 //  888                            
@@ -928,21 +1015,9 @@ void loop()
       Serial.read();
   //*/
 
-    Serial.println("========================");
-    RUN_CHECK(fillRect);
-    RUN_CHECK(drawChar_bg);
-    RUN_CHECK(drawChar);
-    RUN_CHECK(drawFontChar_bg);
-    RUN_CHECK(drawFontChar);
-    RUN_CHECK(drawAAChar_bg);
-    // RUN_CHECK(drawAAChar);
-    RUN_CHECK(writeRect);
-    RUN_CHECK(writeSubImageRect);
-    RUN_CHECK(writeSubImageRectBytesReversed);
-    RUN_CHECK(writeRect1BPP);
-    RUN_CHECK(writeRect2BPP);
-    RUN_CHECK(writeRect4BPP);
-    RUN_CHECK(triangles);
+    if (!checksAreRun)
+      runAllChecks();
+    checksAreRun = false; // do them again next time
 
     whichBox = 0; // re-start clipped boxes in update mode 8
     completedFrames = 0; // and completed frames
@@ -985,7 +1060,7 @@ void loop()
         RUN_CHECK(updateClip);
         asyncStarted = true;
         asyncTime = 0;
-        msecs = 999999;
+        msecs = 999'999;
         break;
 
       case 11:
@@ -1021,11 +1096,11 @@ void loop()
                     );
         asyncTime = 0;
         asyncStarted=true;
-        msecs = 999999;
+        msecs = 999'999;
         break;
 #endif // defined ST77XX_BLACK
     }
-    if (msecs != 999999)
+    if (msecs != 999'999)
       msecs = 0;
   }
 
@@ -1134,11 +1209,19 @@ void loop()
             }
           }
 
+          // do changes during async update, except 
+          // the areas that are being updated, or if 
+          // it's continuous, which works poorly
+          if (3 != UPDATE_MODE && 7 != UPDATE_MODE)
+            runAllChecks(false);
+
           while (!frameCompleted)
             ;//delay(1); // a bit of time to allow last update to appear
           Serial.printf("Stop async update after %dus: ", delayOnStop);
           // digitalWriteFast(1,1); // could end async now, but...
           delayMicroseconds(delayOnStop); // ... wait a while
+          // we may now have a partial update: this is expected
+
           t = 0;
           tft.endUpdateAsync();
           /*
