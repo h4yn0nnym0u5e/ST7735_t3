@@ -662,6 +662,7 @@ uint32_t check_fillHGradient(void)
   checkMicros = 0;
 
   tft.fillRectHGradient(SQ*5/4,SQ*13/4,SQ*4+17,SQ/2,nextColour(),nextColour());
+  //tft.fillRectHGradient(SQ*5/4,SQ*13/4,SQ*4+17,SQ/2,0x0000,CL(40,40,40));
 
   return checkMicros;
 }

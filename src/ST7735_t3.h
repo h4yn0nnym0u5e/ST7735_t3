@@ -547,8 +547,8 @@ class ST7735_t3 : public Print
            drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color),
            fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
 
-           // Gradient and support methods, lifted bodily from the 
-           // ILI9341 library
+           // Gradient and support methods, lifted bodily  
+           // from the ILI9341 library and tweaked
            void fillRectHGradient(int16_t x, int16_t y, int16_t w, int16_t h,
                                   uint16_t color1, uint16_t color2);
            void fillRectVGradient(int16_t x, int16_t y, int16_t w, int16_t h,
@@ -564,29 +564,17 @@ class ST7735_t3 : public Print
               b = (color << 3) & 0x00F8;
             }
 
-            // color565toRGB14		- converts 16 bit 565 format color to 14 bit RGB (2
-            // bits clear for math and sign)
-            // returns 00rrrrr000000000,00gggggg00000000,00bbbbb000000000
-            // thus not overloading sign, and allowing up to double for additions for
-            // fixed point delta
-            static void color565toRGB14(uint16_t color, int16_t &r, int16_t &g,
-                                        int16_t &b) 
+
+            static constexpr int32_t COLOUR_ADJ = (1<<24)-1; // for 6.24 numbers
+            // get step and correct start to ensure full gradient appears
+            static int32_t colour30delta(int32_t& c1, int32_t c2, int16_t w)
             {
-              r = (color >> 2) & 0x3E00;
-              g = (color << 3) & 0x3F00;
-              b = (color << 9) & 0x3E00;
+              int32_t result = c2>=c1?0:-COLOUR_ADJ;
+              result = (c2-c1+result)/(w-1);
+              if (c2<c1) c1 += COLOUR_ADJ;
+              return result;
             }
 
-            // RGB14tocolor565		- converts 14 bit RGB back to 16 bit 565 format
-            // color
-            static uint16_t RGB14tocolor565(int16_t r, int16_t g, int16_t b) 
-            {
-              return (((r & 0x3E00) << 2) 
-                    | ((g & 0x3F00) >> 3) 
-                    | ((b & 0x3E00) >> 9));
-            }
-
-            
             void setSPISpeed(int freq = -1, uint8_t mode=SPI_MODE0) { _spiSettings = SPISettings(freq<0?ST7735_SPICLOCK:freq, MSBFIRST, mode); }
    inline void fillWindow(uint16_t color) {fillScreen(color);}
   virtual void setRotation(uint8_t r);
