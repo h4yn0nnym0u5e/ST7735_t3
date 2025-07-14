@@ -216,22 +216,24 @@ typedef class ST7735DMA_Data_class {
 
     void begin(void)
     {
+      /*
       uint32_t startMask = dma_channel_allocated_mask;
       uint32_t chMask = startMask;
 
-      //Serial.printf("Allocated channels: %08X\n", startMask);
+      Serial.printf("Before channels: %08X\n", startMask);
       // We want a pre-emptible channel (0-15) where the
       // corresponding non-pre-emptible one is unused, so
       // we get our own interrupt
       chMask |= chMask >> 16;
       if (0xFFFF != (chMask & 0xFFFF)) // if there's a spare one
       {
-        dma_channel_allocated_mask |= chMask; // mask out used
+        // dma_channel_allocated_mask |= chMask; // mask out used
         //Serial.printf("Faked channels: %08X\n", dma_channel_allocated_mask);
         chMask = dma_channel_allocated_mask; // keep for later
       }
-
+      */
       _dmatx.begin(true,true);
+      /*
       if (0xFFFF != (chMask & 0xFFFF)) // if there was a spare channel before
       {
         chMask ^= dma_channel_allocated_mask; // find the just allocated one
@@ -241,7 +243,9 @@ typedef class ST7735DMA_Data_class {
         chMask |= chMask << 16;
         dma_channel_allocated_mask = startMask | chMask; // restore sane allocation mask
       }
-      //Serial.printf("Allocated channels: %08X\n", dma_channel_allocated_mask);
+      */
+      //Serial.printf("After channels: %08X\n", dma_channel_allocated_mask);
+      
     }
 
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)
@@ -546,6 +550,7 @@ class ST7735_t3 : public Print
            drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color),
            drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color),
            fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+      void begin(void) { initR(INITR_BLACKTAB); }
 
            // Gradient and support methods, lifted bodily  
            // from the ILI9341 library and tweaked
@@ -724,6 +729,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   inline uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
            return ((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3);
   }
+  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) 
+    { return Color565(r,g,b); }
   void setBitrate(uint32_t n);
 
   /* These are not for current use, 8-bit protocol only!
@@ -842,7 +849,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint16_t *getFrameBuffer() {return _pfbtft;}
   int32_t frameCount() {return _dma_frame_count; }
   uint16_t subFrameCount() { return _dma_sub_frame_count; }
-  boolean asyncUpdateActive(void)  {return (_dma_state & ST77XX_DMA_ACTIVE);}
+  boolean asyncUpdateActive(void)  {return 0 != (_dma_state & ST77XX_DMA_ACTIVE);}
   uint8_t asyncState(void) { return _dma_state; }
   void  initDMASettings(void);
   void setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone = false);
@@ -979,9 +986,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void waitFIFOempty(void)
   {
 #if defined(__IMXRT1062__)
-    while (_pimxrt_spi->FSR & 0x1f) // wait for FIFO to empty
+    while (0 != (_pimxrt_spi->FSR & 0x1f)) // wait for FIFO to empty
       ;
-    while (_pimxrt_spi->SR & LPSPI_SR_MBF) // and module not to be busy
+    while (0 != (_pimxrt_spi->SR & LPSPI_SR_MBF)) // and module not to be busy
       ;
 #endif // defined(__IMXRT1062__)
     }
@@ -1084,12 +1091,12 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
       // only output when Transfer queue is empty.
       if (!dc_state_change || !_dcpinmask) {
-        while ((_pimxrt_spi->FSR & 0x1f) )  
+        while (0 != (_pimxrt_spi->FSR & 0x1f))  
           ;
         _pimxrt_spi->TCR = _spi_tcr_current;  // update the TCR
       } else {
         waitTransmitComplete();
-        if (requested_tcr_state & LPSPI_TCR_PCS(3)) 
+        if (0 != (requested_tcr_state & LPSPI_TCR_PCS(3))) 
           DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
         else 
           DIRECT_WRITE_LOW(_dcport, _dcpinmask);

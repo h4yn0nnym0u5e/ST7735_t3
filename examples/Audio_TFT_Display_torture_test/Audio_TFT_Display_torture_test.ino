@@ -110,7 +110,9 @@ AudioConnection          patchCord4(playSdWav1, 1, peak2, 0);
 AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
-//#include <TeensyDebug.h>
+//////////////////////////////////////////////////////
+#include <TeensyDebug.h> ///////////////////////////
+//////////////////////////////////////////////////////
 
 #if defined(MICRO_DEXED)
   #define TFT_DC      37
@@ -1159,7 +1161,10 @@ void loop()
           // uint32_t delayOnStop = random(60);
           static uint32_t delayOnStop = 0;
           if (++delayOnStop > 60)
-            delayOnStop = 0;
+            delayOnStop = 40;
+
+// hack for Smallest+LTO lockup:            
+//if (49 == delayOnStop) delayOnStop++; // seems to be a sensitive spot!
 
           while (t < timeLimit) // for a while
           {

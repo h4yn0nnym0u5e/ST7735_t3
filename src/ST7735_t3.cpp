@@ -32,6 +32,8 @@
   #define DEBUG_PIN_3 2
 #endif
 
+uint32_t lastProc,endedAt,waitStarted;
+
 volatile short _dma_dummy_rx;
 
 ST7735_t3 *ST7735_t3::_dmaActiveDisplay[3] = {0, 0, 0};
@@ -831,6 +833,8 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		_spi_num = 2;          // Which buss is this spi on? 
 		_pimxrt_spi = &IMXRT_LPSPI1_S;
 	} else _pspi = nullptr;
+
+	Serial.printf("SPI at %08X\n",(uint32_t) _pimxrt_spi);
 
 	if (_pspi) {
 		hwSPI = true;
@@ -4341,6 +4345,7 @@ extern void dumpDMA_TCD(DMABaseClass *dmabc);
  * - do mid-trnsaction breaks if configured
  */
 void ST7735_t3::process_dma_interrupt(void) {
+	lastProc=micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_2, HIGH);
 #endif
@@ -5385,10 +5390,12 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the 
 	return result;
 }	
 
+
 void ST7735_t3::endUpdateAsync() {
+	endedAt=micros();
 	// make sure it is on
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
-	if (_dma_state & ST77XX_DMA_CONT) {
+	if (0 != (_dma_state & ST77XX_DMA_CONT)) {
 		_dma_state &= ~ST77XX_DMA_CONT; // Turn off the continuous mode
 #if defined(__MK66FX1M0__)
 		_dmasettings[_spi_num][_cnt_dma_settings].disableOnCompletion();
@@ -5404,11 +5411,13 @@ void ST7735_t3::endUpdateAsync() {
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
+	DMASetting current{_dma_data[_spi_num]._dmatx};
+	waitStarted=micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
 #endif
 
-	while ((_dma_state & ST77XX_DMA_ACTIVE)) 
+	while (0 != (_dma_state & ST77XX_DMA_ACTIVE)) 
 	{
 		// asm volatile("wfi");
 		yield(); // could be many milliseconds...
