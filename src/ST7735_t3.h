@@ -225,6 +225,37 @@ class ST7735_t3 : public Print
            drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color),
            drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color),
            fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+      void begin(uint8_t options = INITR_BLACKTAB) { initR(options); }
+
+           // Gradient and support methods, lifted bodily  
+           // from the ILI9341 library and tweaked
+           void fillRectHGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  uint16_t color1, uint16_t color2);
+           void fillRectVGradient(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  uint16_t color1, uint16_t color2);
+           void fillScreenVGradient(uint16_t color1, uint16_t color2);
+           void fillScreenHGradient(uint16_t color1, uint16_t color2);  
+            // color565toRGB		- converts 565 format 16 bit color to RGB
+            static void color565toRGB(uint16_t color, uint8_t &r, uint8_t &g,
+                                      uint8_t &b) 
+            { 
+              r = (color >> 8) & 0x00F8;
+              g = (color >> 3) & 0x00FC;
+              b = (color << 3) & 0x00F8;
+            }
+
+
+            static constexpr int32_t COLOUR_ADJ = (1<<24)-1; // for 6.24 numbers
+            // get step and correct start to ensure full gradient appears
+            static int32_t colour30delta(int32_t& c1, int32_t c2, int16_t w)
+            {
+              int32_t result = c2>=c1?0:-COLOUR_ADJ;
+              result = (c2-c1+result)/(w-1);
+              if (c2<c1) c1 += COLOUR_ADJ;
+              return result;
+            }
+
+            void setSPISpeed(int freq = -1, uint8_t mode=SPI_MODE0) { _spiSettings = SPISettings(freq<0?ST7735_SPICLOCK:freq, MSBFIRST, mode); }
    inline void fillWindow(uint16_t color) {fillScreen(color);}
   virtual void setRotation(uint8_t r);
   void     invertDisplay(boolean i);
@@ -352,6 +383,8 @@ class ST7735_t3 : public Print
   inline uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
            return ((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3);
   }
+  // ...and a version with consistent naming. Sigh.
+  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return Color565(r,g,b); }
   void setBitrate(uint32_t n);
 
   /* These are not for current use, 8-bit protocol only!
