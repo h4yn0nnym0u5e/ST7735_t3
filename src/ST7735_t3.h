@@ -383,11 +383,12 @@ class ST7735_t3 : public Print
 
 
   // Pass 8-bit (each) R,G,B, get back 16-bit packed color
+  // This is the wrong order, but also an inconsistent name, so...
   inline uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
            return ((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3);
   }
-  // ...and a version with consistent naming. Sigh.
-  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return Color565(r,g,b); }
+  // ...add a version with consistent naming and parameters. Sigh.
+  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return Color565(b,g,r); }
   void setBitrate(uint32_t n);
 
   /* These are not for current use, 8-bit protocol only!

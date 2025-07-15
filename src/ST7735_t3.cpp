@@ -830,8 +830,12 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 
 	if (_pspi) {
 		hwSPI = true;
-		_pspi->begin();
-		_shared_spi_status[_spi_num]._pending_rx_count = 0;
+		if (!_shared_spi_status[_spi_num]._begin_done)
+		{
+			_pspi->begin();
+			_shared_spi_status[_spi_num]._begin_done = true;
+			_shared_spi_status[_spi_num]._pending_rx_count = 0;
+		}
 		_spiSettings = SPISettings(ST7735_SPICLOCK, MSBFIRST, mode);
 		_pspi->beginTransaction(_spiSettings); // Should have our settings. 
 		_pspi->transfer(0);	// hack to see if it will actually change then...
