@@ -23,6 +23,7 @@
 #include "DMAChannel.h"
 #ifdef __cplusplus
 #include <SPI.h>
+#include "DisplaySharedSPIStatus.h"
 #endif
 
 #include "ILI9341_fonts.h"
@@ -182,6 +183,8 @@ typedef struct {
 typedef struct {
   DMASetting      _dmasettings[3];
   DMAChannel      _dmatx;
+  //uint8_t _pending_rx_count = 0;
+  //uint32_t _spi_tcr_current = 0; 
 } ST7735DMA_Data;
 #endif
 
@@ -604,8 +607,9 @@ class ST7735_t3 : public Print
   uint8_t   _spi_num = 0;          // Which buss is this spi on? 
   IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
   SPIClass::SPI_Hardware_t *_spi_hardware;
-  uint8_t _pending_rx_count = 0;
-  uint32_t _spi_tcr_current = 0; 
+  // uint8_t _pending_rx_count = 0; 
+  // uint32_t _spi_tcr_current = 0; 
+  DisplaySharedSPIStatus& _shared_spi_status = DisplaySharedSPIStatus::getInstance();
   uint32_t _tcr_dc_assert;
   uint32_t _tcr_dc_not_assert;
 
@@ -621,7 +625,9 @@ class ST7735_t3 : public Print
 #define TCR_MASK  (LPSPI_TCR_PCS(3) | LPSPI_TCR_FRAMESZ(31) | LPSPI_TCR_CONT | LPSPI_TCR_RXMSK )
 #endif  
   void maybeUpdateTCR(uint32_t requested_tcr_state) {
-  if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
+    uint32_t& _spi_tcr_current = _shared_spi_status[_spi_num]._spi_tcr_current;
+
+    if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
       bool dc_state_change = (_spi_tcr_current & LPSPI_TCR_PCS(3)) != (requested_tcr_state & LPSPI_TCR_PCS(3));
       _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
       // only output when Transfer queue is empty.
@@ -641,7 +647,8 @@ class ST7735_t3 : public Print
 
   inline void beginSPITransaction() {
     if (hwSPI) _pspi->beginTransaction(_spiSettings);
-    if (!_dcport) _spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
+    if (!_dcport) 
+      _shared_spi_status[_spi_num]._spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
     if (_csport)DIRECT_WRITE_LOW(_csport, _cspinmask);
   }
 
@@ -656,7 +663,9 @@ class ST7735_t3 : public Print
     do {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
-            if (_pending_rx_count) _pending_rx_count--; //decrement count of bytes still levt
+            //decrement count of bytes still left
+            if (_shared_spi_status[_spi_num]._pending_rx_count) 
+              _shared_spi_status[_spi_num]._pending_rx_count--; 
         }
     } while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0) ;
  }
@@ -664,10 +673,10 @@ class ST7735_t3 : public Print
     uint32_t tmp __attribute__((unused));
 //    digitalWriteFast(2, HIGH);
 
-    while (_pending_rx_count) {
+    while (_shared_spi_status[_spi_num]._pending_rx_count) {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
-            _pending_rx_count--; //decrement count of bytes still levt
+            _shared_spi_status[_spi_num]._pending_rx_count--; //decrement count of bytes still left
         }
     }
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF;       // Clear RX FIFO
