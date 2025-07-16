@@ -228,7 +228,6 @@ class ST7735_t3 : public Print
            drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color),
            drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color),
            fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
-      void begin(uint8_t options = INITR_BLACKTAB) { initR(options); }
 
            // Gradient and support methods, lifted bodily  
            // from the ILI9341 library and tweaked
