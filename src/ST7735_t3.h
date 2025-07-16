@@ -25,6 +25,7 @@
 #define SCB_ICSR_VECTACTIVE_Msk (0x1FFUL)
 #ifdef __cplusplus
 #include <SPI.h>
+#include "DisplaySharedSPIStatus.h"
 #endif
 
 #include "ILI9341_fonts.h"
@@ -729,8 +730,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   inline uint16_t Color565(uint8_t r, uint8_t g, uint8_t b) {
            return ((b & 0xF8) << 8) | ((g & 0xFC) << 3) | (r >> 3);
   }
-  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) 
-    { return Color565(r,g,b); }
+  // ...add a version with consistent naming and parameters. Sigh.
+  inline uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return Color565(b,g,r); }
   void setBitrate(uint32_t n);
 
   /* These are not for current use, 8-bit protocol only!
@@ -1069,8 +1070,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint8_t   _spi_num = 0;          // Which buss is this spi on? 
   IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
   SPIClass::SPI_Hardware_t *_spi_hardware;
-  uint8_t _pending_rx_count = 0;
-  uint32_t _spi_tcr_current = 0; 
+  // uint8_t _pending_rx_count = 0; 
+  // uint32_t _spi_tcr_current = 0; 
+  DisplaySharedSPIStatus& _shared_spi_status = DisplaySharedSPIStatus::getInstance();
   uint32_t _tcr_dc_assert;
   uint32_t _tcr_dc_not_assert;
 
@@ -1086,6 +1088,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 #define TCR_MASK  (LPSPI_TCR_PCS(3) | LPSPI_TCR_FRAMESZ(31) | LPSPI_TCR_CONT | LPSPI_TCR_RXMSK )
 #endif  
   void maybeUpdateTCR(uint32_t requested_tcr_state) {
+    uint32_t& _spi_tcr_current = _shared_spi_status[_spi_num]._spi_tcr_current;
+
     if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
       bool dc_state_change = (_spi_tcr_current & LPSPI_TCR_PCS(3)) != (requested_tcr_state & LPSPI_TCR_PCS(3));
       _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
@@ -1108,7 +1112,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   inline void beginSPITransaction() {
     cyccntAtBegin = ARM_DWT_CYCCNT;
     if (hwSPI) _pspi->beginTransaction(_spiSettings);
-    if (!_dcport) _spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
+    if (!_dcport) 
+      _shared_spi_status[_spi_num]._spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
     if (_csport)DIRECT_WRITE_LOW(_csport, _cspinmask);
   }
 
@@ -1124,7 +1129,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     do {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
-            if (_pending_rx_count) _pending_rx_count--; //decrement count of bytes still levt
+            //decrement count of bytes still left
+            if (_shared_spi_status[_spi_num]._pending_rx_count) 
+              _shared_spi_status[_spi_num]._pending_rx_count--; 
         }
     } while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0) ;
  }
@@ -1132,10 +1139,10 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
  void waitTransmitComplete(void)  {
     uint32_t tmp __attribute__((unused));
 
-    while (_pending_rx_count) {
+    while (_shared_spi_status[_spi_num]._pending_rx_count) {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
-            _pending_rx_count--; //decrement count of bytes still levt
+            _shared_spi_status[_spi_num]._pending_rx_count--; //decrement count of bytes still left
         }
     }
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF;       // Clear RX FIFO

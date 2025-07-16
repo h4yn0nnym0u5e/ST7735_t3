@@ -297,7 +297,7 @@ void ST7735_t3::writecommand(uint8_t c)
 	if (hwSPI) {
 		maybeUpdateTCR(_tcr_dc_assert | LPSPI_TCR_FRAMESZ(7) /*| LPSPI_TCR_CONT*/);
 		_pimxrt_spi->TDR = c;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitFifoNotFull();
 	} else {
 		DIRECT_WRITE_LOW(_dcport, _dcpinmask);
@@ -310,7 +310,7 @@ void ST7735_t3::writecommand_last(uint8_t c)
 	if (hwSPI) {
 		maybeUpdateTCR(_tcr_dc_assert | LPSPI_TCR_FRAMESZ(7));
 		_pimxrt_spi->TDR = c;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitTransmitComplete();
 	} else {
 		DIRECT_WRITE_LOW(_dcport, _dcpinmask);
@@ -324,7 +324,7 @@ void ST7735_t3::writedata(uint8_t c)
 	if (hwSPI) {
 		maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(7));
 		_pimxrt_spi->TDR = c;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitTransmitComplete();
 	} else {
 		DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
@@ -337,7 +337,7 @@ void ST7735_t3::writedata_last(uint8_t c)
 	if (hwSPI) {
 		maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(7));
 		_pimxrt_spi->TDR = c;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitTransmitComplete();
 	} else {
 		DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
@@ -351,7 +351,7 @@ void ST7735_t3::writedata16(uint16_t d)
 	if (hwSPI) {
 		maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15) | LPSPI_TCR_CONT);
 		_pimxrt_spi->TDR = d;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitFifoNotFull();
 	} else {
 		DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
@@ -366,7 +366,7 @@ void ST7735_t3::writedata16_last(uint16_t d)
 		maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(15));
 		_pimxrt_spi->TDR = d;
 //		_pimxrt_spi->SR = LPSPI_SR_WCF | LPSPI_SR_FCF | LPSPI_SR_TCF;
-		_pending_rx_count++;	//
+		_shared_spi_status[_spi_num]._pending_rx_count++;	//
 		waitTransmitComplete();
 	} else {
 		DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
@@ -834,17 +834,19 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		_pimxrt_spi = &IMXRT_LPSPI1_S;
 	} else _pspi = nullptr;
 
-	Serial.printf("SPI at %08X\n",(uint32_t) _pimxrt_spi);
-
 	if (_pspi) {
 		hwSPI = true;
-		_pspi->begin();
-		_pending_rx_count = 0;
+		if (!_shared_spi_status[_spi_num]._begin_done)
+		{
+			_pspi->begin();
+			_shared_spi_status[_spi_num]._begin_done = true;
+			_shared_spi_status[_spi_num]._pending_rx_count = 0;
+		}
 		_spiSettings = SPISettings(ST7735_SPICLOCK, MSBFIRST, mode);
 		_pspi->beginTransaction(_spiSettings); // Should have our settings. 
 		_pspi->transfer(0);	// hack to see if it will actually change then...
 		_pspi->endTransaction();
-		_spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value 
+		_shared_spi_status[_spi_num]._spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value 
 //		uint32_t *phack = (uint32_t* )&_spiSettings;
 //		Serial.printf("SPI Settings: TCR: %x %x (%x %x)\n", _spi_tcr_current, _pimxrt_spi->TCR, phack[0], phack[1]);
 		// Hack to get hold of the SPI Hardware information... 
@@ -5411,7 +5413,6 @@ void ST7735_t3::endUpdateAsync() {
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
-	DMASetting current{_dma_data[_spi_num]._dmatx};
 	waitStarted=micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);
