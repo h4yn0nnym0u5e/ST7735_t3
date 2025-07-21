@@ -102,6 +102,15 @@ void	updateScreen(void); - Will update the screen with all of your updates...
 void	setFrameBuffer(uint16_t *frame_buffer); - Now have the ability allocate the frame buffer and pass it in, to avoid use of malloc
 void updateChangedAreasOnly(bool b) - if b true only changed areas get updated on-screen
 ```
+### Space for frame buffer
+|  screen size  |  RAM  |
+|:-------------:|------:|
+| 128x160 |  40,960 |
+| 240x240 | 115,200 |
+| 320x240 | 153,600 |
+| 480x320 | 307,200 |
+
+If not needed for other purposes, a Teensy 4.x can accommodate several small screen buffers, a couple of moderate ones, or one large one in its on-chip RAM. With PSRAM fitted to a Teensy 4.1, several frame buffers can be created using the `setFrameBuffer()` method.
 
 Asynchronous Update support (Frame buffer)
 ------------------------
