@@ -205,7 +205,7 @@ typedef class ST7735DMA_Data_class {
     // SPI library already has two of its own. This is probably 
     // sensible, as we do fairly weird things with ours, and the
     // SPI library doesn't really cater for that.
-    DMAChannel      _dmatx{false}; // don't allocate channel on construction
+    DMAChannel*  _pDMAtx{nullptr}; // don't allocate channel on construction
 
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
@@ -215,7 +215,7 @@ typedef class ST7735DMA_Data_class {
     uint32_t maxRows;       // max rows the intermediate buffer can hold
     bool asyncEnded; // this is a bit of a hack - fix later...
 
-    void begin(void)
+    void begin(DMAChannel& DMAch)
     {
       /*
       uint32_t startMask = dma_channel_allocated_mask;
@@ -233,7 +233,12 @@ typedef class ST7735DMA_Data_class {
         chMask = dma_channel_allocated_mask; // keep for later
       }
       */
-      _dmatx.begin(true,true);
+      if (nullptr == _pDMAtx)
+      {
+        _pDMAtx = &DMAch;
+        if (nullptr == _pDMAtx->TCD) // not yet initialised?
+          _pDMAtx->begin(true,true); // .. do it!
+      }
       /*
       if (0xFFFF != (chMask & 0xFFFF)) // if there was a spare channel before
       {
@@ -334,7 +339,7 @@ typedef class ST7735DMA_Data_class {
                       )       
     {
       DMASetting& sb = _dmasettings[snum];
-      uint8_t channel = _dmatx.channel;
+      uint8_t channel = _pDMAtx->channel;
 
       remainingRows = tRows - rows; // record rows remaining to do after this update
       if (initial) // store 
@@ -459,41 +464,41 @@ typedef class ST7735DMA_Data_class {
     // mem2mem -> mem2SPI setup
     void startDMA(uint8_t triggerSource, int snum = 0)
     {
-      _dmatx = _dmasettings[snum];
+      *_pDMAtx = _dmasettings[snum];
 #define DMAMUX_SOURCE_MANUAL 255 // special for manual trigger
       if (DMAMUX_SOURCE_MANUAL == triggerSource)
       {
-        _dmatx.triggerManual();
+        _pDMAtx->triggerManual();
       }
       else
       {
-        _dmatx.triggerAtHardwareEvent(triggerSource);
+        _pDMAtx->triggerAtHardwareEvent(triggerSource);
       }
-      _dmatx.begin(false);
-      _dmatx.enable();    
+      _pDMAtx->begin(false);
+      _pDMAtx->enable();    
     }
 
     int endTries{0}; // debug helper
     void endUpdate(void)
     {
       __disable_irq();
-      uint32_t oldBITER = _dmatx.TCD->BITER;
+      uint32_t oldBITER = _pDMAtx->TCD->BITER;
       endTries = 0;
       do 
       {
-        oldBITER = _dmatx.TCD->BITER;
-        _dmatx.TCD->CSR &= ~DMA_TCD_CSR_ESG; // prevent scatter-gather
-        _dmatx.disableOnCompletion();   // stop at end of current transaction
-        _dmatx.interruptAtCompletion(); // and interrupt so we can tidy up
+        oldBITER = _pDMAtx->TCD->BITER;
+        _pDMAtx->TCD->CSR &= ~DMA_TCD_CSR_ESG; // prevent scatter-gather
+        _pDMAtx->disableOnCompletion();   // stop at end of current transaction
+        _pDMAtx->interruptAtCompletion(); // and interrupt so we can tidy up
         endTries++;
-      } while (oldBITER != _dmatx.TCD->BITER);
+      } while (oldBITER != _pDMAtx->TCD->BITER);
       __enable_irq();
       asyncEnded = true;
     }
 
     bool isActive(void)
     {
-      return 0 != (DMA_ERQ & (1<<_dmatx.channel)) || !asyncEnded;
+      return 0 != (DMA_ERQ & (1<<_pDMAtx->channel)) || !asyncEnded;
     }
 
     void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
@@ -834,7 +839,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     initDMASettings(); // ensure DMA is initialised and channel allocated
     _forceInterrupt(prio); 
   }
-  void  setMaxAsyncLines(int lines) { _setMaxAsyncLines(lines); }
+  void  setMaxAsyncLines(int lines = -1) { _setMaxAsyncLines(lines); }
   int getMaxFrameCount(void) { return _dma_data[_spi_num].getFrameCount(); } // frames per complete update
   int getEndUpdateTries(void) { return _dma_data[_spi_num].endTries; } // debug helper
 #else // dummy functions for Teensy 3.x
@@ -1264,6 +1269,18 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void _setMaxAsyncLines(int n)
   {
     constexpr int DMAmaxWords = 32767;
+    if (n <= 0) // make a "best guess"
+    {
+      int nmax = 1024 / _width;
+      while (nmax > 1)
+      {
+        if (0 == _height - nmax*(_height/nmax))
+          break;
+        nmax--;          
+      }
+      n = nmax;
+      Serial.printf("MaxAsyncLines = %d\n",n);
+    }
     COUNT_WORDS_WRITE = n * _width;
     if (COUNT_WORDS_WRITE > DMAmaxWords) // can't do chunks that big
     {
@@ -1281,9 +1298,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     // probably could use const table of functions...
     if (prio > 0)
       ISRpriority = prio;
-    if (_spi_num == 0) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt, ISRpriority);
-    else if (_spi_num == 1) _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt1, ISRpriority);
-    else _dma_data[_spi_num]._dmatx.attachInterrupt(dmaInterrupt2, ISRpriority);    
+    if (_spi_num == 0) _dma_data[_spi_num]._pDMAtx->attachInterrupt(dmaInterrupt, ISRpriority);
+    else if (_spi_num == 1) _dma_data[_spi_num]._pDMAtx->attachInterrupt(dmaInterrupt1, ISRpriority);
+    else _dma_data[_spi_num]._pDMAtx->attachInterrupt(dmaInterrupt2, ISRpriority);    
   }
 
   /*
@@ -1297,7 +1314,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       // probably could use const table of functions...
     if (prio > 0)
       ISRpriority = prio;
-    uint8_t channel = _dma_data[_spi_num]._dmatx.channel;      
+    uint8_t channel = _dma_data[_spi_num]._pDMAtx->channel;      
     
     NVIC_SET_PRIORITY((channel & 15) + IRQ_DMA_CH0, ISRpriority);
   }

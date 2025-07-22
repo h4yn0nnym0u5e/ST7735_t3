@@ -132,6 +132,18 @@ void initScreens(void)
 }
 
 
+extern "C" uint32_t dma_channel_allocated_mask;
+uint32_t lastMask = 0xFFFF'FFFF;
+void DMAcheck(void)
+{
+    if (lastMask != dma_channel_allocated_mask)
+    {
+        lastMask = dma_channel_allocated_mask;
+        Serial.printf("Allocated DMA channels: %08X\n",lastMask);
+    }
+}
+
+
 #define ALLOC_FB(tft,tftx,ps) Serial.printf("Allocated %dkB for %s\n",allocateFB<tft##tftx>(tft,ps)/1024,#tft)
 void setup(void)
 {
@@ -165,11 +177,18 @@ void setup(void)
     ALLOC_FB(ST7789,_t3,false);
     ALLOC_FB(ST7796,_t3,true);
 
+    DMAcheck();
     ST7796.useFrameBuffer(true);
     showGamut<ST7796_t3>(ST7796);
     ST7796.useFrameBuffer(false);
-    ST7796.setMaxAsyncLines(2);
+    //ST7796.setMaxAsyncLines(2);
     ST7796.setAsyncInterruptPriority(224);
+
+    ST7789.useFrameBuffer(true);
+    showGamut<ST7789_t3>(ST7789);
+    ST7789.useFrameBuffer(false);
+    ST7789.setMaxAsyncLines(5);
+
 }
 
 
@@ -190,17 +209,26 @@ void run_check_async(const char* tft, const char* chk,
                      int x, int y,
                      uint32_t (*chkFn)(int,int))
 {
+    DMAcheck();
     Serial.printf("%-8s@ %-18s - %6d\n",tft,chk,chkFn(x,y));
+}
+
+void time_async(bool (*updFn)(void))
+{
+    elapsedMicros t = 0;
+    bool ok = updFn();
+    uint32_t t2 = t;
+    Serial.printf("Async was %sOK: took %dus\n",ok?"":"not ",t2);
 }
 
 // #define RUN_CHECK(chk,tft,tftx,x,y) check_##chk<tft##tftx>(tft,x,y)
 #define RUN_CHECK(chk,tft,tftx,x,y) \
-    Serial.printf("%-8s: %-18s - %6d\n",#tft,#chk,check_##chk<tft##tftx>(tft,x,y))
+    DMAcheck(); Serial.printf("%-8s: %-18s - %6d\n",#tft,#chk,check_##chk<tft##tftx>(tft,x,y))
 
 #define RUN_CHECK_ASYNC(chk,tft,tftx,x,y) \
     tft.useFrameBuffer(true); \
     run_check_async(#tft,#chk,x,y,[](int a, int b){ return check_##chk<tft##tftx>(tft,a,b);}); \
-    tft.updateScreenAsync(false,true); tft.waitUpdateAsyncComplete(); \
+    time_async([](){ bool ok = tft.updateScreenAsync(false,true); tft.waitUpdateAsyncComplete(); return ok;}); \
     tft.useFrameBuffer(false)
 
 void runChecks(void)
@@ -209,14 +237,17 @@ void runChecks(void)
     uint16_t lastColour = nextColour(false);
 
     Serial.printf("Check #%d\n",++checkCount);
+    RUN_CHECK_ASYNC(drawAAChar_bg,ST7789,_t3,34,84);
+    RUN_CHECK(fillHGradient,ST7789,_t3,20,20);
+
+    RUN_CHECK_ASYNC(drawFontChar_bg,ST7796,_t3,300,180);
+    RUN_CHECK(drawFontChar,ST7796,_t3,80,80);
+
     RUN_CHECK(fillRectX4,ILI9341,_t3n,115,10);
     RUN_CHECK(fillVGradient,GC9A01A,_t3n,110,20);
-    RUN_CHECK(fillHGradient,ST7789,_t3,20,20);
-    RUN_CHECK(drawFontChar,ST7796,_t3,80,80);
     RUN_CHECK(writeSubImageRect,ST7735,_t3,14,0);
 
     //RUN_CHECK(drawFontChar_bg,ST7796,_t3,300,180);
-    RUN_CHECK_ASYNC(drawFontChar_bg,ST7796,_t3,300,180);
 
     if (lastColour == nextColour(false))
         nextColour();

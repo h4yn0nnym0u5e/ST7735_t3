@@ -4393,7 +4393,7 @@ void ST7735_t3::process_dma_interrupt(void) {
   	//=========================================================
 	volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;
 	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
-	DMAChannel&     dmatx = dmaData._dmatx;
+	DMAChannel&     dmatx = *dmaData._pDMAtx;
 	bool userCallbackNeeded = false;
 	dmatx.clearInterrupt();
 
@@ -4851,7 +4851,13 @@ void dumpDMA_TCD(DMABaseClass *dmabc)
 void	ST7735_t3::initDMASettings(void) 
 {
 #if defined(__IMXRT1062__)  // Teensy 4.x
-  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+  	volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+
+	// This is per-display, so check on every init attempt
+	if (_dma_data[_spi_num].getFrameCount() < 0 // not already set
+	    || 0 == COUNT_WORDS_WRITE)
+		_setMaxAsyncLines(-1); // _height);
+
 #endif // defined(__IMXRT1062__)
 
 	// Serial.printf("initDMASettings called %d\n", _dma_state);
@@ -4929,9 +4935,7 @@ void	ST7735_t3::initDMASettings(void)
 	else if (_spi_num == 1) _dmatx.attachInterrupt(dmaInterrupt1);
 	else _dmatx.attachInterrupt(dmaInterrupt2);
 
-#elif defined(__IMXRT1062__)  // Teensy 4.x
-	if (_dma_data[_spi_num].getFrameCount() < 0) // not already set
-		_setMaxAsyncLines(_height);
+#elif defined(__IMXRT1062__)  // Teensy 4.x	
 	// First time we init...
 	_dma_data[_spi_num].setSPIhw(_pimxrt_spi); // so DMA knows what to trigger from
 
@@ -4961,14 +4965,14 @@ void	ST7735_t3::initDMASettings(void)
 	// Serial.println("DMA initDMASettings - before dmatx");
 #if defined(DMA_DCHPRI_DPA) // we have pre-emption capability - say we're pre-emptible
 	//_dma_data[_spi_num]._dmatx.begin(true,true);
-	_dma_data[_spi_num].begin(); // special begin() sequence
+	_dma_data[_spi_num].begin(_shared_spi_status[_spi_num].DMAch); // special begin() sequence
 #else // no pre-emption possible
 	_dma_data[_spi_num]._dmatx.begin(true);
 #endif // defined(DMA_DCHPRI_DPA)	
-	_dma_data[_spi_num]._dmatx.triggerAtHardwareEvent(dmaTXevent);
+	_dma_data[_spi_num]._pDMAtx->triggerAtHardwareEvent(dmaTXevent);
 dumpDMASettings();
 	//_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
-	_dma_data[_spi_num]._dmatx.disable();
+	_dma_data[_spi_num]._pDMAtx->disable();
 	_attachInterrupt(ISRpriority);
 #else
 	// T3.5
@@ -5030,7 +5034,7 @@ void ST7735_t3::dumpDMASettings() {
 	dumpDMA_TCD(&_dmasettings[_spi_num][3]);
 #elif defined(__IMXRT1062__)  // Teensy 4.x
 	// Serial.printf("DMA dump TCDs %d\n", _dmatx.channel);
-	dumpDMA_TCD(&_dma_data[_spi_num]._dmatx);
+	dumpDMA_TCD(_dma_data[_spi_num]._pDMAtx);
 	dumpDMA_TCD(&_dma_data[_spi_num]._dmasettings[0]);
 	dumpDMA_TCD(&_dma_data[_spi_num]._dmasettings[1]);
 	Serial.println();
