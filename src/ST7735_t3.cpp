@@ -64,7 +64,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t sid, uint8_t sclk, uint8_t 
     _pfbtft = NULL;	
     _use_fbtft = 0;						// Are we in frame buffer mode?
 	_we_allocated_buffer = NULL;
-	_dma_state = 0;
+	//_dma_state = 0;
     #endif
 	_screenHeight = ST7735_TFTHEIGHT_160;
 	_screenWidth = ST7735_TFTWIDTH;	
@@ -100,7 +100,7 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst)
     _pfbtft = NULL;	
     _use_fbtft = 0;						// Are we in frame buffer mode?
 	_we_allocated_buffer = NULL;
-	_dma_state = 0;
+	//_dma_state = 0;
     #endif
 	_screenHeight = ST7735_TFTHEIGHT_160;
 	_screenWidth = ST7735_TFTWIDTH;
@@ -4391,6 +4391,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 	//=========================================================
 	// Teensy 4.x
   	//=========================================================
+	volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;
 	ST7735DMA_Data& dmaData = _dma_data[_spi_num];
 	DMAChannel&     dmatx = dmaData._dmatx;
 	bool userCallbackNeeded = false;
@@ -4683,6 +4684,9 @@ void ST7735_t3::setFrameBuffer(uint16_t *frame_buffer)
 
 
 void ST7735_t3::setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone) {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
   _frame_complete_callback = pcb;
   _frame_callback_on_HalfDone = pcb ? fCallAlsoHalfDone : false;
 
@@ -4846,11 +4850,15 @@ void dumpDMA_TCD(DMABaseClass *dmabc)
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
 void	ST7735_t3::initDMASettings(void) 
 {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
 	// Serial.printf("initDMASettings called %d\n", _dma_state);
 	if (_dma_state & ST77XX_DMA_INIT) { // should test for init, but...
 			return;	// we already init this. 
 	}
-	_dma_state = ST77XX_DMA_INIT;  // MUST be first thing set! Prevent recursion...
+	_dma_state |= ST77XX_DMA_INIT;  // MUST be first thing set! Prevent recursion...
 #ifdef DEBUG_ASYNC_LEDS	
   pinMode(DEBUG_PIN_1, OUTPUT); digitalWrite(DEBUG_PIN_1, LOW);
   pinMode(DEBUG_PIN_2, OUTPUT); digitalWrite(DEBUG_PIN_2, LOW);
@@ -5087,6 +5095,10 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 								  bool interrupt_every,	//!< interrupt after every DMA: no chaining of settings on completion
 								  bool use_clip_rect)	//!< only update clip rectangle
 {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
 	// Not sure if better here to check flag or check existence of buffer.
 	// Will go by buffer as maybe can do interesting things?
 	// BUGBUG:: only handles full screen so bail on the rest of it...
@@ -5312,6 +5324,10 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 
 bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the screen now.
 {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
 	bool result = false;
 	// Not sure if better here to check flag or check existence of buffer.
 	// Will go by buffer as maybe can do interesting things?
@@ -5394,6 +5410,10 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the 
 
 
 void ST7735_t3::endUpdateAsync() {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
 	endedAt=micros();
 	// make sure it is on
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
@@ -5413,6 +5433,10 @@ void ST7735_t3::endUpdateAsync() {
 	
 void ST7735_t3::waitUpdateAsyncComplete(void) 
 {
+#if defined(__IMXRT1062__)  // Teensy 4.x
+  volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
 	waitStarted=micros();
 #ifdef DEBUG_ASYNC_LEDS
 	digitalWriteFast(DEBUG_PIN_3, HIGH);

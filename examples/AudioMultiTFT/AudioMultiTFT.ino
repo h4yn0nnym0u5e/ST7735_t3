@@ -168,6 +168,8 @@ void setup(void)
     ST7796.useFrameBuffer(true);
     showGamut<ST7796_t3>(ST7796);
     ST7796.useFrameBuffer(false);
+    ST7796.setMaxAsyncLines(2);
+    ST7796.setAsyncInterruptPriority(224);
 }
 
 
@@ -198,13 +200,15 @@ void run_check_async(const char* tft, const char* chk,
 #define RUN_CHECK_ASYNC(chk,tft,tftx,x,y) \
     tft.useFrameBuffer(true); \
     run_check_async(#tft,#chk,x,y,[](int a, int b){ return check_##chk<tft##tftx>(tft,a,b);}); \
-    tft.updateScreenAsync(); tft.waitUpdateAsyncComplete(); \
+    tft.updateScreenAsync(false,true); tft.waitUpdateAsyncComplete(); \
     tft.useFrameBuffer(false)
 
 void runChecks(void)
 {
+    static int checkCount = 0;
     uint16_t lastColour = nextColour(false);
 
+    Serial.printf("Check #%d\n",++checkCount);
     RUN_CHECK(fillRectX4,ILI9341,_t3n,115,10);
     RUN_CHECK(fillVGradient,GC9A01A,_t3n,110,20);
     RUN_CHECK(fillHGradient,ST7789,_t3,20,20);

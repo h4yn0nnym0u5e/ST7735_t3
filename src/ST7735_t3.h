@@ -798,7 +798,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         ST77XX_DMA_CHAINED   = 0x08, // SPI DMA is chained
         ST77XX_DMA_IRQ_EVERY = 0x10, // interrupt every DMA frame
         ST77XX_DMA_USE_CLIP  = 0x20, // use clipping rectangle, not full screen
-        // = 0x40
+        // = 0x40: _DMA_EVER_INIT for other TFTs
         ST77XX_DMA_ACTIVE    = 0x80}; // is active
 
   // added support to use optional Frame buffer
@@ -850,8 +850,18 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   uint16_t *getFrameBuffer() {return _pfbtft;}
   int32_t frameCount() {return _dma_frame_count; }
   uint16_t subFrameCount() { return _dma_sub_frame_count; }
-  boolean asyncUpdateActive(void)  {return 0 != (_dma_state & ST77XX_DMA_ACTIVE);}
-  uint8_t asyncState(void) { return _dma_state; }
+  boolean asyncUpdateActive(void)  
+  {
+    return 0 != (asyncState() & ST77XX_DMA_ACTIVE);
+  }
+  uint8_t asyncState(void) 
+  { 
+#if defined(__IMXRT1062__)  // Teensy 4.x
+    volatile uint8_t& _dma_state = _shared_spi_status[_spi_num]._dma_state;	
+#endif // defined(__IMXRT1062__)
+
+    return _dma_state; 
+  }
   void  initDMASettings(void);
   void setFrameCompleteCB(void (*pcb)(), bool fCallAlsoHalfDone = false);
 #else
@@ -1229,13 +1239,14 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   // Note: We have enough memory to have more than one, so could have multiple active devices (one per SPI BUS)
   //     All three devices have 3 SPI buss so hard coded
   static  ST7735_t3     *_dmaActiveDisplay[3];  // Use pointer to this as a way to get back to object...
-  volatile uint8_t      _dma_state;         // DMA status
+  //volatile uint8_t      _dma_state;         // DMA status
   volatile int32_t      _dma_frame_count;   // Can return a frame count...
   volatile uint16_t     _dma_sub_frame_count = 0; // Can return a frame count...
 
   #if defined(__MK66FX1M0__) 
   // T3.6 use Scatter/gather with chain to do transfer
   static DMASetting   _dmasettings[3][4];
+  volatile uint8_t      _dma_state{0};         // DMA status
   DMAChannel   _dmatx;
   uint8_t      _cnt_dma_settings;   // how many do we need for this display?
 
@@ -1307,6 +1318,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   volatile uint8_t *_csport = nullptr;
   DMAChannel   _dmatx;
   DMAChannel   _dmarx;
+  volatile uint8_t      _dma_state{0};         // DMA status
   uint32_t   _dma_count_remaining;
   uint16_t   _dma_write_size_words;
   #elif defined(__MK20DX256__)

@@ -28,7 +28,7 @@ class DisplaySharedSPIStatus
     struct status_s 
     {
         bool _begin_done = false;
-        volatile uint8_t _dma_state;
+        volatile uint8_t _dma_state = 0;
         uint8_t _pending_rx_count = 0;
         uint32_t _spi_tcr_current = 0; 
     } status[NUM_SPI];
