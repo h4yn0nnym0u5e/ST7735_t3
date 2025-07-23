@@ -144,7 +144,8 @@ void DMAcheck(void)
 }
 
 
-#define ALLOC_FB(tft,tftx,ps) Serial.printf("Allocated %dkB for %s\n",allocateFB<tft##tftx>(tft,ps)/1024,#tft)
+#define ALLOC_FB(tft,tftx,ps) \
+    Serial.printf("Allocated %dkB for %s%s\n",allocateFB<tft##tftx>(tft,ps)/1024,#tft,ps?" in PSRAM":"")
 void setup(void)
 {
     
@@ -176,19 +177,23 @@ void setup(void)
     ALLOC_FB(ST7735,_t3,false);
     ALLOC_FB(ST7789,_t3,false);
     ALLOC_FB(ST7796,_t3,true);
+    ALLOC_FB(GC9A01A,_t3n,false);
+    ALLOC_FB(ILI9341,_t3n,true);
+
+    ST7789.useIntermediateBuffer(4*ST7789.width()*sizeof(uint16_t));
+    ST7796.useIntermediateBuffer(2*ST7796.width()*sizeof(uint16_t));
 
     DMAcheck();
-    ST7796.useFrameBuffer(true);
-    showGamut<ST7796_t3>(ST7796);
-    ST7796.useFrameBuffer(false);
+    gamutFB<ST7796_t3>(ST7796);
     //ST7796.setMaxAsyncLines(2);
     ST7796.setAsyncInterruptPriority(224);
 
-    ST7789.useFrameBuffer(true);
-    showGamut<ST7789_t3>(ST7789);
-    ST7789.useFrameBuffer(false);
+    gamutFB<ST7789_t3>(ST7789);
     ST7789.setMaxAsyncLines(5);
 
+    gamutFB<ST7735_t3>(ST7735);
+    gamutFB<GC9A01A_t3n>(GC9A01A);
+    gamutFB<ILI9341_t3n>(ILI9341); 
 }
 
 
@@ -213,6 +218,7 @@ void run_check_async(const char* tft, const char* chk,
     Serial.printf("%-8s@ %-18s - %6d\n",tft,chk,chkFn(x,y));
 }
 
+
 void time_async(bool (*updFn)(void))
 {
     elapsedMicros t = 0;
@@ -225,36 +231,54 @@ void time_async(bool (*updFn)(void))
 #define RUN_CHECK(chk,tft,tftx,x,y) \
     DMAcheck(); Serial.printf("%-8s: %-18s - %6d\n",#tft,#chk,check_##chk<tft##tftx>(tft,x,y))
 
-#define RUN_CHECK_ASYNC(chk,tft,tftx,x,y) \
+
+#define RUN_CHECK_ASYNC(chk,tft,tftx,x,y,changedOnly) \
+    tft.useFrameBuffer(true); \
+    if (changedOnly) {tft.updateChangedAreasOnly(true); tft.clearChangedArea();} \
+    run_check_async(#tft,#chk,x,y,[](int a, int b){ return check_##chk<tft##tftx>(tft,a,b);}); \
+    time_async([](){ bool ok = tft.updateScreenAsync(false,true,changedOnly); tft.waitUpdateAsyncComplete(); return ok;}); \
+    tft.useFrameBuffer(false); if (changedOnly) {tft.updateChangedAreasOnly(false);}
+
+
+#define RUN_CHECK_ASYNC_LEGACY(chk,tft,tftx,x,y) \
     tft.useFrameBuffer(true); \
     run_check_async(#tft,#chk,x,y,[](int a, int b){ return check_##chk<tft##tftx>(tft,a,b);}); \
-    time_async([](){ bool ok = tft.updateScreenAsync(false,true); tft.waitUpdateAsyncComplete(); return ok;}); \
+    time_async([](){ bool ok = tft.updateScreenAsync(false); tft.waitUpdateAsyncComplete(); return ok;}); \
     tft.useFrameBuffer(false)
 
+//---------------------------------------------------------------------------------
 void runChecks(void)
 {
     static int checkCount = 0;
     uint16_t lastColour = nextColour(false);
+    elapsedMillis em = 0;
 
     Serial.printf("Check #%d\n",++checkCount);
-    RUN_CHECK_ASYNC(drawAAChar_bg,ST7789,_t3,34,84);
+
+    RUN_CHECK_ASYNC(drawAAChar_bg,ST7789,_t3,34,84,false);
     RUN_CHECK(fillHGradient,ST7789,_t3,20,20);
 
-    RUN_CHECK_ASYNC(drawFontChar_bg,ST7796,_t3,300,180);
+    RUN_CHECK_ASYNC(drawFontChar_bg,ST7796,_t3,300,180,true);
     RUN_CHECK(drawFontChar,ST7796,_t3,80,80);
 
-    RUN_CHECK(fillRectX4,ILI9341,_t3n,115,10);
+    RUN_CHECK_ASYNC_LEGACY(writeRect2BPP,GC9A01A,_t3n,15,80);
     RUN_CHECK(fillVGradient,GC9A01A,_t3n,110,20);
+
+    RUN_CHECK_ASYNC_LEGACY(writeRect4BPP,ILI9341,_t3n,170,140);
+    RUN_CHECK(fillRectX4,ILI9341,_t3n,115,10);
+
+    RUN_CHECK_ASYNC(writeSubImageRectBytesReversed,ST7735,_t3,34,80,false);
     RUN_CHECK(writeSubImageRect,ST7735,_t3,14,0);
 
     //RUN_CHECK(drawFontChar_bg,ST7796,_t3,300,180);
 
     if (lastColour == nextColour(false))
         nextColour();
-    Serial.println();        
+    Serial.printf("Took %dms\n\n",(uint32_t) em);        
 }
 
 
+//---------------------------------------------------------------------------------
 void loop(void)
 {
     if (Serial.available())

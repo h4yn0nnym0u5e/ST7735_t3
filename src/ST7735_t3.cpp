@@ -5248,6 +5248,7 @@ bool ST7735_t3::updateScreenAsync(bool update_cont, 	//!< continuous updates
 	_pimxrt_spi->DER = LPSPI_DER_TDDE;
 	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
+	_attachInterrupt(); // may have been hijacked by another display
 	_dma_data[_spi_num].startDMA(trigSrc); // start display update
 
 	_dma_frame_count = 0; // Set frame count back to zero.
@@ -5387,6 +5388,7 @@ bool ST7735_t3::updateScreenAsyncT4(bool update_cont)	// call to say update the 
 	_pimxrt_spi->DER = LPSPI_DER_TDDE;
 	_pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
+	_attachInterrupt(); // may have been hijacked by another display
 	_dma_data[_spi_num].startDMA(_spi_hardware->tx_dma_channel); // start display update
 
 	_dma_frame_count = 0; // Set frame count back to zero.
