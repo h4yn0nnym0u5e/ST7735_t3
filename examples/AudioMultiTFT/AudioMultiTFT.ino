@@ -118,7 +118,6 @@ void initScreens(void)
     digitalWrite(GBL_RST,0); delay(1);
     digitalWrite(GBL_RST,1); delay(10);
 
-
     GC9A01A.begin();
     ILI9341.begin();
     ST7735.initR(INITR_BLACKTAB);
@@ -153,11 +152,7 @@ void setup(void)
     pinMode(GBL_RST,OUTPUT);
     safeCSpins();
 
-    while (!Serial)
-    {
-        digitalToggleFast(GBL_BLK);
-        delay(100);
-    }
+    throbBacklight(GBL_BLK);
     
     initScreens();
 
@@ -165,14 +160,6 @@ void setup(void)
 
     initAudio();
     playAudio();
-
-    showGamut<GC9A01A_t3n>(GC9A01A);
-    showGamut<ST7735_t3>(ST7735);
-    showGamut<ST7789_t3>(ST7789);
-    showGamut<ST7796_t3>(ST7796);
-    showGamut<ILI9341_t3n>(ILI9341); 
-    
-    halt_cpu();
 
     ALLOC_FB(ST7735,_t3,false);
     ALLOC_FB(ST7789,_t3,false);
@@ -194,6 +181,8 @@ void setup(void)
     gamutFB<ST7735_t3>(ST7735);
     gamutFB<GC9A01A_t3n>(GC9A01A);
     gamutFB<ILI9341_t3n>(ILI9341); 
+
+    halt_cpu();
 }
 
 

@@ -7,8 +7,8 @@
 #define ST7796_CS  29
 #define ST7735_CS  28 
 
-#define GBL_RST 33
-#define GBL_BLK 34
+#define GBL_BLK 33
+#define GBL_RST 34
 
 #define TFT_DC    9
 #define TFT_SCK  13

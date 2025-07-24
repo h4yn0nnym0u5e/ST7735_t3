@@ -3,6 +3,33 @@
 #include "config.h"
 #include "utils.h"
 
+
+void throbBacklight(int pin)
+{
+  int level = 0;
+  bool up = true;
+
+  pinMode(pin,OUTPUT);
+  while (!Serial)
+  {
+    analogWrite(pin,level);
+    if (up)
+    {
+      level++;
+      if (level >= 254)
+        up = false;
+    }
+    else
+    {
+      level--;
+      if (level <= 1)
+        up = true;
+    }
+    delay(3);
+  }
+}
+
+
 void safeCSpins(void)
 {
   const int CSpins[] = {28,29,30,31,32};

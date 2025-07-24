@@ -3,6 +3,7 @@
 #define _UTILS_H_
 extern uint16_t nextColour(bool inc = true);
 extern void safeCSpins(void);
+extern void throbBacklight(int pin);
 
 template<class TFT>
 size_t allocateFB(TFT& tft, bool inPSRAM = false, bool allocate = true)
@@ -132,6 +133,7 @@ void gamutFB(TFT& tft)
 {
   tft.useFrameBuffer(true);
   showGamut<TFT>(tft);
+  tft.updateScreen();
   tft.useFrameBuffer(false);
 }
 
