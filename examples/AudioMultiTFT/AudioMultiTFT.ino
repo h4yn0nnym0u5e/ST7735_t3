@@ -2,7 +2,7 @@
  * Multi-screen test with audio
  */
 #include <Audio.h>
-#include <TeensyDebug.h>
+//#include <TeensyDebug.h>
 
 #include <ST7789_t3.h> // based on ST7735, so we have that too
 #include <ST7796_t3.h> 
@@ -182,7 +182,7 @@ void setup(void)
     gamutFB<GC9A01A_t3n>(GC9A01A);
     gamutFB<ILI9341_t3n>(ILI9341); 
 
-    halt_cpu();
+//    halt_cpu();
 }
 
 
