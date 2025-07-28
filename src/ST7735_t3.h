@@ -35,9 +35,8 @@
 #define ENABLE_ST77XX_FRAMEBUFFER
 #elif defined(__IMXRT1062__)
 #define ENABLE_ST77XX_FRAMEBUFFER
-extern uint32_t dma_channel_allocated_mask;
 #endif
-// Lets allow the user to define if they want T3.2 to enable frame buffer.
+// Let's allow the user to define if they want T3.2 to enable frame buffer.
 // it will only work on subset of displays due to memory
 #define ENABLE_ST77XX_FRAMEBUFFER_T32
 #if defined(__MK20DX256__) && defined(ENABLE_ST77XX_FRAMEBUFFER_T32)
@@ -217,41 +216,16 @@ typedef class ST7735DMA_Data_class {
 
     void begin(DMAChannel& DMAch)
     {
-      /*
-      uint32_t startMask = dma_channel_allocated_mask;
-      uint32_t chMask = startMask;
-
-      Serial.printf("Before channels: %08X\n", startMask);
-      // We want a pre-emptible channel (0-15) where the
-      // corresponding non-pre-emptible one is unused, so
-      // we get our own interrupt
-      chMask |= chMask >> 16;
-      if (0xFFFF != (chMask & 0xFFFF)) // if there's a spare one
-      {
-        // dma_channel_allocated_mask |= chMask; // mask out used
-        //Serial.printf("Faked channels: %08X\n", dma_channel_allocated_mask);
-        chMask = dma_channel_allocated_mask; // keep for later
-      }
-      */
       if (nullptr == _pDMAtx)
       {
         _pDMAtx = &DMAch;
         if (nullptr == _pDMAtx->TCD) // not yet initialised?
+#if defined(DMA_PREEMPTION_AVAILABLE)
           _pDMAtx->begin(true,true); // .. do it!
+#else
+          _pDMAtx->begin(true); // .. do it!
+#endif // priority-capable DMA          
       }
-      /*
-      if (0xFFFF != (chMask & 0xFFFF)) // if there was a spare channel before
-      {
-        chMask ^= dma_channel_allocated_mask; // find the just allocated one
-        //Serial.printf("New channel: %08X\n", chMask);
-        // at this point we  mask BOTH channels as allocated,
-        // preventing an interrupt clash but wasting a channel
-        chMask |= chMask << 16;
-        dma_channel_allocated_mask = startMask | chMask; // restore sane allocation mask
-      }
-      */
-      //Serial.printf("After channels: %08X\n", dma_channel_allocated_mask);
-      
     }
 
     void setDMA(int snum, uint16_t* _pfbtft, uint32_t byteCount, int nextSettings)

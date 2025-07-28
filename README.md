@@ -226,6 +226,18 @@ For example, the audio library uses an interrupt of priority 208; the async prio
 [Start of mid-transaction break discussion in existing ST7796 thread](https://forum.pjrc.com/index.php?threads/st7796-teensyduino-support.76510/post-358123)<br>
 [Revised DMAChannel thread](https://forum.pjrc.com/index.php?threads/issues-with-dmachannels.76608/)
 
+Co-existence with other display types
+----
+This driver attempts to co-exist with other ILI9341, GC9A01A 
+and ST77xx displays sharing the same SPI bus and DMA channel, 
+without impacting the speed optimisations too badly.
+
+Each display can share all pins _except_ the /CS pin. To share the
+/RST pin it should be specified as not connected (`-1`) for all displays,
+and then driven by user code.
+
+User code must of course ensure that accesses to different displays do not
+overlap. This is usually only an issue with async updates, as updates that write directly to a display will block until complete. For small displays, or a Teensy 4.x with PSRAM, multiple frame buffers can be used and written to while another frame buffer is being updated to its display asynchronously.
 
 Adafruit library info
 =======================

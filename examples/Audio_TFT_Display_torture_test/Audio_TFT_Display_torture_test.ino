@@ -47,6 +47,7 @@
  * 13 = async frame buffer, continuous, update changed range
  */
 #define UPDATE_MODE 13
+#define notMULTI_SCREEN
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
@@ -111,7 +112,7 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
 //////////////////////////////////////////////////////
-#include <TeensyDebug.h> ///////////////////////////
+// #include <TeensyDebug.h> ///////////////////////////
 //////////////////////////////////////////////////////
 
 #if defined(MICRO_DEXED)
@@ -129,10 +130,22 @@ AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
   // Use these with the Teensy 4.x and Audio Shield Rev D or D2
   // these are h4yn0nnymou5e pin assignments - you may need to change them
   #define TFT_DC       9
-  #define TFT_CS      22
   #define TFT_RST    255  // 255 = unused, connect to 3.3V
-
-  #define LED_PWM  4 // used to set brightness of LED backlight
+  #if defined(MULTI_SCREEN)
+    #define ILI9341_CS 32
+    #define ST7789_CS  31
+    #define GC9A01_CS  30
+    #define ST7796_CS  29
+    #define ST7735_CS  28
+    int8_t CSpins[] = {28,29,30,31,32};     
+    
+    #define TFT_CS    ST7796_CS
+    #define LED_PWM   33 // backlight for multi-screen rig
+    #define GBL_RST   34
+  #else    
+    #define TFT_CS      22
+    #define LED_PWM  4 // used to set brightness of LED backlight
+  #endif // defined(MULTI_SCREEN)
   #define ROTATE   1
   #define INVERT_DISPLAY false
 #endif // defined(MICRO_DEXED)
@@ -340,11 +353,11 @@ void fillGrid(int pitch, uint16_t colour = ST77XX_WHITE)
 void printSetup(void)
 {
   bool has_DMA_preemption = 
-#if defined(DMA_DCHPRI_DPA) // we have pre-emption capability
+#if defined(DMA_PREEMPTION_AVAILABLE) // we have pre-emption capability
   true 
 #else
   false  
-#endif // defined(DMA_DCHPRI_DPA)  
+#endif // defined(DMA_PREEMPTION_AVAILABLE)  
   ; 
 
 #if defined(CLASSES_UNPROTECTED) // only available if protection removed
@@ -362,11 +375,13 @@ void printSetup(void)
       UPDATE_MODE, audioOK);
 }
 
-#if IS_TEENSY4
-extern uint32_t dma_channel_allocated_mask;
-#else
-extern uint16_t dma_channel_allocated_mask;
-#endif // IS_TEENSY4
+#if defined(CLASSES_UNPROTECTED)
+  #if IS_TEENSY4
+  extern uint32_t dma_channel_allocated_mask;
+  #else
+  extern uint16_t dma_channel_allocated_mask;
+  #endif // IS_TEENSY4
+#endif // defined(CLASSES_UNPROTECTED)
 
 void printDMAchannel(void)
 {
@@ -420,7 +435,22 @@ void fbInPSRAM(void)
 //                                    888      
 //---------------------------------------------------------------------------------
 void setup() {
+#if defined(MULTI_SCREEN)  
+  for (int i=0;i<5;i++)
+  {
+    pinMode(CSpins[i],OUTPUT);
+    digitalWrite(CSpins[i],1);
+  }
+#endif // defined(MULTI_SCREEN)  
+
   pinMode(LED_PWM, OUTPUT);
+
+#if defined(GBL_RST)  
+  pinMode(GBL_RST, OUTPUT);
+  digitalWrite(GBL_RST,1); delay(1);
+  digitalWrite(GBL_RST,0); delay(1);
+  digitalWrite(GBL_RST,1);
+#endif // defined(GBL_RST)  
 
   // debug pins
   pinMode(0,OUTPUT);
