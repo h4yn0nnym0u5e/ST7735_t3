@@ -220,7 +220,7 @@ typedef class ST7735DMA_Data_class {
       {
         _pDMAtx = &DMAch;
         if (nullptr == _pDMAtx->TCD) // not yet initialised?
-#if defined(DMA_PREEMPTION_AVAILABLE)
+#if defined(DMACHANNEL_HAS_PREEMPTION)
           _pDMAtx->begin(true,true); // .. do it!
 #else
           _pDMAtx->begin(true); // .. do it!
