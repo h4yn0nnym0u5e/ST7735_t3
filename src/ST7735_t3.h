@@ -206,6 +206,17 @@ typedef class ST7735DMA_Data_class {
     // SPI library doesn't really cater for that.
     DMAChannel*  _pDMAtx{nullptr}; // don't allocate channel on construction
 
+    // see https://forum.pjrc.com/index.php?threads/issues-with-dmachannels.76608/post-360435
+    // for explanation of this magic!
+    template <typename C>
+    void DMABEGIN(C& dma, void (DMAChannel::*)(bool, bool)) {
+      dma.begin(true, true);
+    }
+    template <typename C>
+    void DMABEGIN(C& dma, void (DMAChannel::*)(bool)) {
+      dma.begin(true);
+    }
+
     IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
     int frameCount{-1}; // number of frames needed for a complete update
@@ -216,15 +227,11 @@ typedef class ST7735DMA_Data_class {
 
     void begin(DMAChannel& DMAch)
     {
-      if (nullptr == _pDMAtx)
+      if (nullptr == _pDMAtx) // don't have the channel yet...
       {
-        _pDMAtx = &DMAch;
+        _pDMAtx = &DMAch;     // ...so get it
         if (nullptr == _pDMAtx->TCD) // not yet initialised?
-#if defined(DMACHANNEL_HAS_PREEMPTION)
-          _pDMAtx->begin(true,true); // .. do it!
-#else
-          _pDMAtx->begin(true); // .. do it!
-#endif // priority-capable DMA          
+          DMABEGIN(*_pDMAtx,&DMAChannel::begin);
       }
     }
 

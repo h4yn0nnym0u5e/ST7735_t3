@@ -352,8 +352,9 @@ void fillGrid(int pitch, uint16_t colour = ST77XX_WHITE)
 #define noCLASSES_UNPROTECTED 
 void printSetup(void)
 {
+#if 0
   bool has_DMA_preemption = 
-#if defined(DMA_PREEMPTION_AVAILABLE) // we have pre-emption capability
+#if defined(DMACHANNEL_HAS_PREEMPTION) // we have pre-emption capability
   true 
 #else
   false  
@@ -373,6 +374,14 @@ void printSetup(void)
     audioOK = "requires DMA pre-emption to work";
   Serial.printf("Update mode %d; audio playback from SD %s\n",
       UPDATE_MODE, audioOK);
+#else
+  Serial.printf("DMA pre-emption status unknown\n");
+
+  const char* audioOK = auok[UPDATE_MODE];
+  Serial.printf("Update mode %d; audio playback from SD %s\n",
+      UPDATE_MODE, audioOK);
+
+#endif        
 }
 
 #if defined(CLASSES_UNPROTECTED)
