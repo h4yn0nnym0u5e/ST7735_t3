@@ -462,6 +462,7 @@ typedef class ST7735DMA_Data_class {
     int endTries{0}; // debug helper
     void endUpdate(void)
     {
+      /*
       __disable_irq();
       uint32_t oldBITER = _pDMAtx->TCD->BITER;
       endTries = 0;
@@ -474,6 +475,8 @@ typedef class ST7735DMA_Data_class {
         endTries++;
       } while (oldBITER != _pDMAtx->TCD->BITER);
       __enable_irq();
+      endTries = _pDMAtx->TCD->DADDR;
+      */
       asyncEnded = true;
     }
 

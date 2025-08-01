@@ -47,11 +47,13 @@
  * 13 = async frame buffer, continuous, update changed range
  */
 #define UPDATE_MODE 13
-#define notMULTI_SCREEN
+#define MULTI_SCREEN
 #define notMICRO_DEXED
 #define notMINI_PLATFORM
 
 #define IS_TEENSY4 (defined(ARDUINO_TEENSY40) || defined(ARDUINO_TEENSY41))
+
+#define noUSE_SPDIF // undefined, or 1, 2 or 3
 
 const char* sbok="should be OK", 
            *xbrk="expected to be broken",
@@ -103,16 +105,33 @@ const char* auok[] =
 AudioPlaySdWav           playSdWav1;     //xy=136,65
 AudioAnalyzePeak         peak2;          //xy=348,219
 AudioAnalyzePeak         peak1;          //xy=358,171
-AudioOutputI2S           i2s1;           //xy=380,92
-AudioConnection          patchCord1(playSdWav1, 0, i2s1, 0);
+#if defined(USE_SPDIF)
+  #if USE_SPDIF == 1      // output pin 7: can't use I2S
+    AudioOutputSPDIF         spdif;
+  #else
+    AudioOutputI2S           i2s1;           //xy=380,92
+    #if USE_SPDIF == 2    // output pin 2: can't use I2S2
+      AudioOutputSPDIF2        spdif;
+    #elif USE_SPDIF == 3  // output pin 14
+      AudioOutputSPDIF3        spdif;
+    #endif    
+    AudioConnection          patchCord1(playSdWav1, 0, i2s1, 0);
+    AudioConnection          patchCord3(playSdWav1, 1, i2s1, 1);
+  #endif
+  AudioConnection          patchCord1b(playSdWav1, 0, spdif, 0);
+  AudioConnection          patchCord3b(playSdWav1, 1, spdif, 1);
+#else  
+  AudioOutputI2S           i2s1;           //xy=380,92
+  AudioConnection          patchCord1(playSdWav1, 0, i2s1, 0);
+  AudioConnection          patchCord3(playSdWav1, 1, i2s1, 1);
+#endif // defined(USE_SPDIF)
 AudioConnection          patchCord2(playSdWav1, 0, peak1, 0);
-AudioConnection          patchCord3(playSdWav1, 1, i2s1, 1);
 AudioConnection          patchCord4(playSdWav1, 1, peak2, 0);
 AudioControlSGTL5000     sgtl5000_1;     //xy=155,192
 // GUItool: end automatically generated code
 
 //////////////////////////////////////////////////////
-// #include <TeensyDebug.h> ///////////////////////////
+// #include <TeensyDebug.h> //////////////////////////
 //////////////////////////////////////////////////////
 
 #if defined(MICRO_DEXED)
@@ -380,8 +399,10 @@ void printSetup(void)
   const char* audioOK = auok[UPDATE_MODE];
   Serial.printf("Update mode %d; audio playback from SD %s\n",
       UPDATE_MODE, audioOK);
-
 #endif        
+#if defined(USE_SPDIF)
+    Serial.printf("Using S/PDIF %d %s\n",USE_SPDIF,1 == USE_SPDIF?"(no I2S)":"");
+#endif // defined(USE_SPDIF)
 }
 
 #if defined(CLASSES_UNPROTECTED)
@@ -464,7 +485,8 @@ void setup() {
   // debug pins
   pinMode(0,OUTPUT);
   pinMode(1,OUTPUT);
-  pinMode(2,OUTPUT);
+  // pinMode(2,OUTPUT); // used for S/PDIF 2
+  pinMode(3,OUTPUT);
   
   //analogWrite(LED_PWM, 64);
   
@@ -489,6 +511,8 @@ void setup() {
   tft.init(320, 480);
   tft.setRotation(ROTATE);         // Rotates screen to match the baseboard orientation
 #if defined(TEENSY_DEBUG_H)
+  while (!Serial)
+    ;
   halt_cpu();
 #endif // defined(TEENSY_DEBUG_H)
   
@@ -535,7 +559,7 @@ void setup() {
   tft.useFrameBuffer(false);
   tft.freeFrameBuffer();
   
-  AudioMemory(10);
+  AudioMemory(20);
 // sgtl5000_1.setAddress(HIGH);
   sgtl5000_1.enable();
   sgtl5000_1.volume(0.3);
@@ -1198,13 +1222,13 @@ void loop()
           elapsedMicros t = 0;
           bool areaChanged = false;
           // uint32_t delayOnStop = random(60);
-          static uint32_t delayOnStop = 0;
+          static uint32_t delayOnStop = 40;
           if (++delayOnStop > 60)
             delayOnStop = 40;
 
 // hack for Smallest+LTO lockup:            
 //if (49 == delayOnStop) delayOnStop++; // seems to be a sensitive spot!
-
+//if (delayOnStop >= 45 && delayOnStop <= 50) delayOnStop = 51;
           while (t < timeLimit) // for a while
           {
             // use callback to flag when frame is done
