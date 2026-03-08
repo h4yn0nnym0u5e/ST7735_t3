@@ -1263,7 +1263,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
         nmax--;          
       }
       n = nmax;
-      Serial.printf("MaxAsyncLines = %d\n",n);
+      //Serial.printf("MaxAsyncLines = %d\n",n);
     }
     COUNT_WORDS_WRITE = n * _width;
     if (COUNT_WORDS_WRITE > DMAmaxWords) // can't do chunks that big
