@@ -4963,12 +4963,12 @@ void	ST7735_t3::initDMASettings(void)
 	// Setup DMA main object
 	//Serial.println("Setup _dmatx");
 	// Serial.println("DMA initDMASettings - before dmatx");
-#if defined(DMA_DCHPRI_DPA) // we have pre-emption capability - say we're pre-emptible
+//#if defined(DMA_DCHPRI_DPA) // we have pre-emption capability - say we're pre-emptible
 	//_dma_data[_spi_num]._dmatx.begin(true,true);
 	_dma_data[_spi_num].begin(_shared_spi_status[_spi_num].DMAch); // special begin() sequence
-#else // no pre-emption possible
-	_dma_data[_spi_num]._dmatx.begin(true);
-#endif // defined(DMA_DCHPRI_DPA)	
+//#else // no pre-emption possible
+//	_dma_data[_spi_num]._dmatx.begin(true);
+//#endif // defined(DMA_DCHPRI_DPA)	
 	_dma_data[_spi_num]._pDMAtx->triggerAtHardwareEvent(dmaTXevent);
 dumpDMASettings();
 	//_dma_data[_spi_num]._dmatx = _dma_data[_spi_num]._dmasettings[0];
