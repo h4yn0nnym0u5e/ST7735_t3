@@ -1521,9 +1521,10 @@ void ST7735_t3::setRotation(uint8_t m)
 
 	//Serial.printf("SetRotation(%d) _xstart=%d _ystart=%d _width=%d, _height=%d\n", _rot, _xstart, _ystart, _width, _height);
 
-	
 	setClipRect();
 	setOrigin();
+  	invalidateAddr();
+
 	
 	cursor_x = 0;
 	cursor_y = 0;

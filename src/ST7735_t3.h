@@ -612,6 +612,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     x0 = dw.x0; y0 = dw.y0; x1 = dw.x1; y1 = dw.y1;
   }
 
+  void invalidateAddr(void) { dw.x0 = dw.y0 = -32767; } // force send address next time
+
   ////
   // from Adafruit_GFX.h
 	int16_t width(void) const { return _width; };
@@ -989,19 +991,40 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void waitFIFOempty(void)
   {
 #if defined(__IMXRT1062__)
-Serial.print('F');
+      static int ok = 20000;
+digitalWriteFast(32,1);
+//Serial.print('F');
     while (0 != (_pimxrt_spi->FSR & 0x1f)) // wait for FIFO to empty
       ;
-Serial.print('B');
+digitalWriteFast(32,0);
+//Serial.print('C');
+    while (0 == (_pimxrt_spi->SR & LPSPI_SR_TCF)) // and transfer to complete
+      ;
    uint32_t timeout = micros();
+//Serial.print('B');
+digitalWriteFast(32,1);
    while (0 != (_pimxrt_spi->SR & LPSPI_SR_MBF)) // and module not to be busy
    {
-      if (micros() - timeout > 5) // magic
+      if (micros() - timeout > 50) // magic
       {
-Serial.print('T');
+        static bool once = false;
+//Serial.print('T');
+if (!once)
+{
+  //Serial.printf(" SR: %08X\n",_pimxrt_spi->SR);
+  once = true;
+}
         break;
       }
    }
+if (ok)
+{
+  ok--;
+  if (0 == ok)
+    //Serial.printf("OK SR: %08X\n",_pimxrt_spi->SR)
+    ;
+}
+digitalWriteFast(32,0);
 #endif // defined(__IMXRT1062__)
   }
 
@@ -1016,11 +1039,11 @@ Serial.print('T');
     if (isPastMaxTransaction())
     {
       result = true;
-Serial.print('w');
-      waitFIFOempty();
-Serial.print('t');
+//Serial.print('w');
+      //waitFIFOempty();
+//Serial.print('t');
       //delayMicroseconds(10);
-      waitTransmitComplete();
+      //waitTransmitComplete();
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
@@ -1029,19 +1052,19 @@ Serial.print('t');
       }
       else // caller relies on bounding rectangle being re-set: do extra work
       {
-Serial.print('l');
+//Serial.print('l');
         writecommand_last(ST7735_NOP);
-Serial.print('e');
+//Serial.print('e');
         endSPITransaction();   // ... let other SPI stuff ...
         if (yieldInMidTransaction && !inISR) yield();
-Serial.print('b');
+//Serial.print('b');
         beginSPITransaction(); // ...have a go
-Serial.print('a');
+//Serial.print('a');
         setAddr((uint16_t) x0, y0, x1, y1);
-Serial.println('r');
+//Serial.print('r');
         writecommand(ST7735_RAMWR);
       }
-Serial.print('x');
+//Serial.println('x');
     }
  
     return result;
@@ -1138,6 +1161,8 @@ Serial.print('x');
   }
 
   inline void endSPITransaction() {
+    waitFIFOempty();
+    waitTransmitComplete();
     if (_csfn) (*_csfn)(HIGH);
     if (_csport)DIRECT_WRITE_HIGH(_csport, _cspinmask);
     if (hwSPI) _pspi->endTransaction();  
@@ -1159,8 +1184,6 @@ Serial.print('x');
 
  void waitTransmitComplete(void)  {
     uint32_t tmp __attribute__((unused));
-//**/ Serial.printf(" %d pending\n", _shared_spi_status[_spi_num]._pending_rx_count);
-    delayMicroseconds(5);
     while (_shared_spi_status[_spi_num]._pending_rx_count) {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in

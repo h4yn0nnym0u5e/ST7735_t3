@@ -108,6 +108,7 @@ void  ST7789_t3::setRotation(uint8_t m)
 //  Serial.printf("Set rotation %d start(%d %d) row: %d, col: %d\n", m, _xstart, _ystart, _rowstart, _colstart);
   setClipRect();
   setOrigin();
+  invalidateAddr();
 	
 	cursor_x = 0;
 	cursor_y = 0;
@@ -164,6 +165,11 @@ void  ST7789_t3::init(uint16_t width, uint16_t height, uint8_t mode)
     _colstart2 = 52;  // odd size
     _rowstart = 40;
     _rowstart2 = 40;
+  } else if ((width == 76) && (height == 284)) { // 2.25" display
+    _colstart =  82;
+    _colstart2 = 82;  // odd size
+    _rowstart =  18;
+    _rowstart2 = 18;
   } else {  // lets compute it.
     // added support for other sizes
     _rowstart = _rowstart2 = (int)((320 - height) / 2);

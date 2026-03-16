@@ -179,6 +179,7 @@ void  ST7796_t3::setRotation(uint8_t m)
 //  Serial.printf("Set rotation %d start(%d %d) row: %d, col: %d\n", m, _xstart, _ystart, _rowstart, _colstart);
   setClipRect();
   setOrigin();
+  invalidateAddr();
 	
 	cursor_x = 0;
 	cursor_y = 0;
