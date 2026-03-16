@@ -217,7 +217,7 @@ typedef class ST7735DMA_Data_class {
       dma.begin(true);
     }
 
-    IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
+    volatile IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
     uint16_t* fbBase;
     int frameCount{-1}; // number of frames needed for a complete update
     uint32_t remainingRows; // remaining rows to do in async update
@@ -528,7 +528,10 @@ class ST7735_t3 : public Print
  public:
 
   ST7735_t3(uint8_t CS, uint8_t RS, uint8_t SID, uint8_t SCLK, uint8_t RST = -1);
-  ST7735_t3(uint8_t CS, uint8_t RS, uint8_t RST = -1);
+  ST7735_t3(uint8_t CS, uint8_t RS, uint8_t RST = -1, void (*CSfn)(bool negate) = nullptr);
+  ST7735_t3(void (*CSfn)(bool negate), uint8_t RS, uint8_t RST = -1) 
+          : ST7735_t3(-1, RS, RST, CSfn) {}
+
 
   void     initB(void),                             // for ST7735B displays
            initR(uint8_t options = INITR_GREENTAB), // for ST7735R
@@ -986,12 +989,21 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void waitFIFOempty(void)
   {
 #if defined(__IMXRT1062__)
+Serial.print('F');
     while (0 != (_pimxrt_spi->FSR & 0x1f)) // wait for FIFO to empty
       ;
-    while (0 != (_pimxrt_spi->SR & LPSPI_SR_MBF)) // and module not to be busy
-      ;
+Serial.print('B');
+   uint32_t timeout = micros();
+   while (0 != (_pimxrt_spi->SR & LPSPI_SR_MBF)) // and module not to be busy
+   {
+      if (micros() - timeout > 5) // magic
+      {
+Serial.print('T');
+        break;
+      }
+   }
 #endif // defined(__IMXRT1062__)
-    }
+  }
 
   // Do a check for elapsed time since beginSPITransaction(), and if needed
   // end it and re-begin. If we're given the co-ordinates then we
@@ -1004,8 +1016,10 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     if (isPastMaxTransaction())
     {
       result = true;
-
+Serial.print('w');
       waitFIFOempty();
+Serial.print('t');
+      //delayMicroseconds(10);
       waitTransmitComplete();
       if (x0 < 0) // no need for setAddr() call on exit
       {
@@ -1015,13 +1029,19 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
       }
       else // caller relies on bounding rectangle being re-set: do extra work
       {
+Serial.print('l');
         writecommand_last(ST7735_NOP);
+Serial.print('e');
         endSPITransaction();   // ... let other SPI stuff ...
         if (yieldInMidTransaction && !inISR) yield();
+Serial.print('b');
         beginSPITransaction(); // ...have a go
+Serial.print('a');
         setAddr((uint16_t) x0, y0, x1, y1);
+Serial.println('r');
         writecommand(ST7735_RAMWR);
       }
+Serial.print('x');
     }
  
     return result;
@@ -1067,7 +1087,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 #if defined(__IMXRT1062__)  // Teensy 4.x
   SPIClass *_pspi = nullptr;
   uint8_t   _spi_num = 0;          // Which buss is this spi on? 
-  IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
+  volatile IMXRT_LPSPI_t *_pimxrt_spi = nullptr;
   SPIClass::SPI_Hardware_t *_spi_hardware;
   // uint8_t _pending_rx_count = 0; 
   // uint32_t _spi_tcr_current = 0; 
@@ -1114,13 +1134,15 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
     if (!_dcport) 
       _shared_spi_status[_spi_num]._spi_tcr_current = _pimxrt_spi->TCR;  // Only if DC is on hardware CS 
     if (_csport)DIRECT_WRITE_LOW(_csport, _cspinmask);
+    if (_csfn) (*_csfn)(LOW);
   }
 
   inline void endSPITransaction() {
+    if (_csfn) (*_csfn)(HIGH);
     if (_csport)DIRECT_WRITE_HIGH(_csport, _cspinmask);
     if (hwSPI) _pspi->endTransaction();  
     updateMaxTransaction();
-}
+  }
 
  
   void waitFifoNotFull(void) {
@@ -1133,25 +1155,33 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
               _shared_spi_status[_spi_num]._pending_rx_count--; 
         }
     } while ((_pimxrt_spi->SR & LPSPI_SR_TDF) == 0) ;
- }
+  }
 
  void waitTransmitComplete(void)  {
     uint32_t tmp __attribute__((unused));
-
+//**/ Serial.printf(" %d pending\n", _shared_spi_status[_spi_num]._pending_rx_count);
+    delayMicroseconds(5);
     while (_shared_spi_status[_spi_num]._pending_rx_count) {
         if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
             _shared_spi_status[_spi_num]._pending_rx_count--; //decrement count of bytes still left
         }
+        else
+          _shared_spi_status[_spi_num]._pending_rx_count = 0;
     }
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF;       // Clear RX FIFO
-}
+  }
 
 
   uint8_t  _cs, _rs, _rst, _sid, _sclk;
 
   uint32_t _cspinmask;
   volatile uint32_t *_csport;
+  // Method to negate or assert CS: used for 
+  // more complex setups, e.g. multiplexed CS.
+  // _csfn(HIGH) must disable CS for the display,
+  // consistent with the usual API.
+  void (*_csfn)(bool negate); 
   uint32_t _dcpinmask;
   volatile uint32_t *_dcport;
   uint32_t _mosipinmask;

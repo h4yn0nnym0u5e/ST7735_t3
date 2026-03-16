@@ -25,7 +25,10 @@ class ST7796_t3 : public ST7735_t3 {
  public:
 
   ST7796_t3(uint8_t CS, uint8_t RS, uint8_t SID, uint8_t SCLK, uint8_t RST = -1);
-  ST7796_t3(uint8_t CS, uint8_t RS, uint8_t RST = -1);
+  ST7796_t3(uint8_t CS, uint8_t RS, uint8_t RST = -1, void (*CSfn)(bool negate) = nullptr);
+  ST7796_t3(void (*CSfn)(bool negate), uint8_t RS, uint8_t RST = -1) 
+          : ST7796_t3(-1, RS, RST, CSfn) {}
+
 
   virtual void  setRotation(uint8_t m);
 

@@ -88,12 +88,13 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t sid, uint8_t sclk, uint8_t 
 
 // Constructor when using hardware SPI.  Faster, but must use SPI pins
 // specific to each board type (e.g. 11,13 for Uno, 51,52 for Mega, etc.)
-ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst) 
+ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst, void (*CSfn)(bool negate)) 
 {
 	_cs   = cs;
 	_rs   = rs;
 	_rst  = rst;
 	_rot = 0xff;
+	_csfn = CSfn;
 	hwSPI = true;
 	_sid  = _sclk = (uint8_t)-1;
 	#ifdef ENABLE_ST77XX_FRAMEBUFFER
@@ -768,7 +769,7 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		if (_pspi->pinIsChipSelect(_rs, _cs)) {
 			pcs_data = _pspi->setCS(_cs);
 			pcs_command = pcs_data | _pspi->setCS(_rs);
-			cspin = 0; // Let know that we are not setting manual
+			cspin = nullptr; // Let know that we are not setting manual
 			//Serial.println("Both CS and DC are SPI pins");
 		// See if at least DC is hardware CS... 	
 		} else if (_pspi->pinIsChipSelect(_rs)) {
@@ -871,15 +872,18 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 		_cspinmask = digitalPinToBitMask(_cs);
 		pinMode(_cs, OUTPUT);	
 		DIRECT_WRITE_HIGH(_csport, _cspinmask);		
-	} else _csport = 0;
+	} else _csport = nullptr;
+	
+	if (_csfn) (*_csfn)(HIGH);
 
 	if (_pspi && _pspi->pinIsChipSelect(_rs)) {
 	 	uint8_t dc_cs_index = _pspi->setCS(_rs);
-	 	_dcport = 0;
+	 	_dcport = nullptr;
 	 	_dcpinmask = 0;
 	 	dc_cs_index--;	// convert to 0 based
 		_tcr_dc_assert = LPSPI_TCR_PCS(dc_cs_index);
     	_tcr_dc_not_assert = LPSPI_TCR_PCS(3);
+		Serial.printf("dc_cs_index: %02X\n", dc_cs_index);
 	} else {
 		//Serial.println("ST7735_t3: Error not DC is not valid hardware CS pin");
 		_dcport = portOutputRegister(_rs);
@@ -4781,7 +4785,7 @@ void ST7735_t3::updateScreen(void)					// call to say update the screen now.
 				for (int x=0;x<(y<_height-1?_width:(_width-1));x++)
 					writedata16(*pftbft++);
 				y++;
-				midTransaction(0, y, _width-1, _height-1-1);
+				midTransaction(0, y, _width-1, _height-1);
 			}
 			writedata16_last(*pftbft);
 		} else {

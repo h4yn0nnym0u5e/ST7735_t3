@@ -46,8 +46,8 @@ ST7789_t3::ST7789_t3(uint8_t CS, uint8_t RS, uint8_t SID, uint8_t SCLK, uint8_t 
 	setOrigin();
 }
 
-ST7789_t3::ST7789_t3(uint8_t CS, uint8_t RS, uint8_t RST) : 
-      ST7735_t3(CS, RS, RST) 
+ST7789_t3::ST7789_t3(uint8_t CS, uint8_t RS, uint8_t RST, void (*CSfn)(bool negate)) : 
+      ST7735_t3(CS, RS, RST, CSfn) 
 {
   tabcolor = INIT_ST7789_TABCOLOR;
   _screenHeight = 240;
