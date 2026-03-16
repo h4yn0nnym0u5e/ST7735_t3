@@ -883,7 +883,7 @@ void ST7735_t3::commonInit(const uint8_t *cmdList, uint8_t mode)
 	 	dc_cs_index--;	// convert to 0 based
 		_tcr_dc_assert = LPSPI_TCR_PCS(dc_cs_index);
     	_tcr_dc_not_assert = LPSPI_TCR_PCS(3);
-		Serial.printf("dc_cs_index: %02X\n", dc_cs_index);
+		// Serial.printf("dc_cs_index: %02X\n", dc_cs_index);
 	} else {
 		//Serial.println("ST7735_t3: Error not DC is not valid hardware CS pin");
 		_dcport = portOutputRegister(_rs);
@@ -3090,7 +3090,7 @@ void ST7735_t3::setFont(const GFXfont *f) {
         		indexx_max = i;
         	}
         }
-        Serial.printf("Set GFX Font(%x): Y: %d %d(%c) %d(%c) X: %d(%c) %d(%c)\n", (uint32_t)f, f->yAdvance, 
+        //Serial.printf("Set GFX Font(%x): Y: %d %d(%c) %d(%c) X: %d(%c) %d(%c)\n", (uint32_t)f, f->yAdvance, 
         	miny_offset, index_min + f->first, max_delta, index_max + f->first,
         	minx_offset, indexx_min + f->first, maxx_overlap, indexx_max + f->first);
 #endif

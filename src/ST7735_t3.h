@@ -991,40 +991,17 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void waitFIFOempty(void)
   {
 #if defined(__IMXRT1062__)
-      static int ok = 20000;
-digitalWriteFast(32,1);
-//Serial.print('F');
     while (0 != (_pimxrt_spi->FSR & 0x1f)) // wait for FIFO to empty
       ;
-digitalWriteFast(32,0);
-//Serial.print('C');
     while (0 == (_pimxrt_spi->SR & LPSPI_SR_TCF)) // and transfer to complete
       ;
-   uint32_t timeout = micros();
-//Serial.print('B');
-digitalWriteFast(32,1);
    while (0 != (_pimxrt_spi->SR & LPSPI_SR_MBF)) // and module not to be busy
    {
+    /*
       if (micros() - timeout > 50) // magic
-      {
-        static bool once = false;
-//Serial.print('T');
-if (!once)
-{
-  //Serial.printf(" SR: %08X\n",_pimxrt_spi->SR);
-  once = true;
-}
         break;
-      }
+    */
    }
-if (ok)
-{
-  ok--;
-  if (0 == ok)
-    //Serial.printf("OK SR: %08X\n",_pimxrt_spi->SR)
-    ;
-}
-digitalWriteFast(32,0);
 #endif // defined(__IMXRT1062__)
   }
 
@@ -1039,11 +1016,6 @@ digitalWriteFast(32,0);
     if (isPastMaxTransaction())
     {
       result = true;
-//Serial.print('w');
-      //waitFIFOempty();
-//Serial.print('t');
-      //delayMicroseconds(10);
-      //waitTransmitComplete();
       if (x0 < 0) // no need for setAddr() call on exit
       {
         endSPITransaction();
@@ -1052,19 +1024,13 @@ digitalWriteFast(32,0);
       }
       else // caller relies on bounding rectangle being re-set: do extra work
       {
-//Serial.print('l');
         writecommand_last(ST7735_NOP);
-//Serial.print('e');
         endSPITransaction();   // ... let other SPI stuff ...
         if (yieldInMidTransaction && !inISR) yield();
-//Serial.print('b');
         beginSPITransaction(); // ...have a go
-//Serial.print('a');
         setAddr((uint16_t) x0, y0, x1, y1);
-//Serial.print('r');
         writecommand(ST7735_RAMWR);
       }
-//Serial.println('x');
     }
  
     return result;
