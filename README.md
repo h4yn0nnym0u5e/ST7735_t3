@@ -47,6 +47,14 @@ ST7789_t3 tft = ST7789_t3(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCK, TFT_RST);
 
 // For 3.5" or 4.0" TFT with ST7796
 //ST7796_t3 tft = ST7796_t3(TFT_CS, TFT_DC, TFT_RST);
+
+// Option 3: hardware DC pin, multiplexed CS with function to set it:
+ST7789_t3 tft = ST7789_t3(void (*CSfn)(bool negate), TFT_DC, TFT_RST);
+// Internally:
+	CSfn(LOW);  // asserts CS, addressing this display
+	CSfn(HIGH); // negates CS
+// See the `muxedCSdemo` example for one way to 
+// create a per-display chip select
 ```
 
 NOTE: If the Teensy has more than one SPI buss, and the selected IO pins are _all_ on a different SPI buss then that buss will be used. (i.e. you can use SPI1 or SPI2).  With this, on a board such as a T4 or T3.5 or T3.6 you can potentially have three displays all on different SPI busses and using the Async updates you can have all three of them updating their display at the same time. 
