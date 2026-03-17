@@ -73,6 +73,7 @@ fillRect	KEYWORD2
 fillRoundRect	KEYWORD2
 fillWindow	KEYWORD2
 setRotation	KEYWORD2
+setCustomRotation	KEYWORD2
 invertDisplay	KEYWORD2
 setRowColStart	KEYWORD2
 rowStart	KEYWORD2
