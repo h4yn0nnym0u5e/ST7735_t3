@@ -1454,6 +1454,25 @@ void ST7735_t3::fillScreenHGradient(uint16_t color1, uint16_t color2) {
   fillRectHGradient(0, 0, _width, _height, color1, color2);
 }
 
+void ST7735_t3::setCustomRotation(uint8_t madctl, int w, int h, int xs, int ys)
+{
+	beginSPITransaction();
+	writecommand(ST7735_MADCTL);
+	writedata_last(madctl);
+	_width  = w;
+	_height = h;
+	_xstart = xs;
+	_ystart = ys;
+	endSPITransaction();
+	// rot = what it was before!
+	setClipRect();
+	setOrigin();
+  	invalidateAddr();
+
+	cursor_x = 0;
+	cursor_y = 0;
+}
+
 #define MADCTL_MY  0x80
 #define MADCTL_MX  0x40
 #define MADCTL_MV  0x20

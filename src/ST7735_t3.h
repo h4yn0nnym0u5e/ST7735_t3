@@ -485,7 +485,7 @@ typedef class ST7735DMA_Data_class {
       return 0 != (DMA_ERQ & (1<<_pDMAtx->channel)) || !asyncEnded;
     }
 
-    void setSPIhw(IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
+    void setSPIhw(volatile IMXRT_LPSPI_t* _spi) { _pimxrt_spi = _spi; }
     void setFrameCount(int fc) { frameCount = fc; }
     int  getFrameCount(void)   { return frameCount; }
     int  getRemainingRows(void)   { return remainingRows; }
@@ -576,8 +576,9 @@ class ST7735_t3 : public Print
             void setSPISpeed(int freq = -1, uint8_t mode=SPI_MODE0) { _spiSettings = SPISettings(freq<0?ST7735_SPICLOCK:freq, MSBFIRST, mode); }
    inline void fillWindow(uint16_t color) {fillScreen(color);}
   virtual void setRotation(uint8_t r);
-  void     invertDisplay(boolean i);
-  void     setRowColStart(uint16_t x, uint16_t y);
+  void      setCustomRotation(uint8_t madctl, int w, int h, int xs, int ys);
+  void      invertDisplay(boolean i);
+  void      setRowColStart(uint16_t x, uint16_t y);
   uint16_t  rowStart() {return _rowstart;}
   uint16_t  colStart() {return _colstart;}
   void setMaxTransaction(uint32_t us) { maxTransactionCyccnt = F_CPU / 1'000'000 * us;}
