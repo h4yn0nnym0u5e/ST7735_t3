@@ -1156,8 +1156,6 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
             tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in
             _shared_spi_status[_spi_num]._pending_rx_count--; //decrement count of bytes still left
         }
-        else
-          _shared_spi_status[_spi_num]._pending_rx_count = 0;
     }
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF;       // Clear RX FIFO
   }
