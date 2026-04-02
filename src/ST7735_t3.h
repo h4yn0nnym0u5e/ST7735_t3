@@ -884,7 +884,19 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   }
 
   void clearChangedArea(void) { _clearChangedArea(); }
+  
+  // Returns how many pixels have been changed (rectangular area)
+  // Could be up to 153,600 for a 480x320 display, so needs to be int
+  int getChangedArea(void)
+  {
+    int result = 0;
 
+    if (_changed_max_x >= 0) // something has been changed
+      result = (_changed_max_x - _changed_min_x + 1)
+             * (_changed_max_y - _changed_min_y + 1);
+
+    return result;
+  }
 
  protected:
   uint8_t  tabcolor;
@@ -1378,20 +1390,8 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   #endif
   }
 
-  // Returns how many pixels have been changed (rectangular area)
-  // Could be up to 153,600 for a 480x320 display, so needs to be int
-  int getChangedArea(void)
-  {
-    int result = 0;
 
-    if (_changed_max_x >= 0) // something has been changed
-      result = (_changed_max_x - _changed_min_x + 1)
-             * (_changed_max_y - _changed_min_y + 1);
-
-    return result;
-  }
-
-	void HLine(int16_t x, int16_t y, int16_t w, uint16_t color)
+  void HLine(int16_t x, int16_t y, int16_t w, uint16_t color)
 	  __attribute__((always_inline)) 
 	  {
 		#ifdef ENABLE_ST77XX_FRAMEBUFFER
