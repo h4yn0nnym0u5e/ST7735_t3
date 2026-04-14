@@ -4573,6 +4573,7 @@ void ST7735_t3::process_dma_interrupt(void) {
 
       _pimxrt_spi->CR =
           LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; // actually clear both...
+	  _shared_spi_status[_spi_num]._pending_rx_count = 0; // we just invalidated this!		  
       _pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
       maybeUpdateTCR(_tcr_dc_assert |
