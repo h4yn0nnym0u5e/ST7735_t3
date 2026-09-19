@@ -46,9 +46,10 @@
 
 
 //#define ST7735_SPICLOCK 80'000'000
+#define ST7735_SPICLOCK 50'000'000
 //#define ST7735_SPICLOCK 40'000'000
 //#define ST7735_SPICLOCK 24'000'000
-#define ST7735_SPICLOCK 16'000'000
+//#define ST7735_SPICLOCK 16'000'000
 
 // some flags for initR() :(
 #define INITR_GREENTAB 0x0
@@ -737,7 +738,7 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
   void     dummyclock(void);
   */
   // Useful methods added from ili9341_t3 
-  void writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pcolors);
+  void writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pcolors, const int transparent = -1);
   void writeSubImageRect(int16_t x, int16_t y, int16_t w, int16_t h, 
                         int16_t image_offset_x, int16_t image_offset_y, int16_t image_width, int16_t image_height, 
                         const uint16_t *pcolors);
@@ -1238,9 +1239,9 @@ uint32_t maxTransactionLengthSeen; // in CPU cycles
 
 #ifdef ENABLE_ST77XX_FRAMEBUFFER
     // Add support for optional frame buffer
-  uint16_t  *_pfbtft;           // Optional Frame buffer 
-  uint8_t   _use_fbtft;         // Are we in frame buffer mode?
-  uint16_t  *_we_allocated_buffer;      // We allocated the buffer; 
+  uint16_t  *_pfbtft{nullptr};           // Optional Frame buffer 
+  uint8_t   _use_fbtft{false};         // Are we in frame buffer mode?
+  uint16_t  *_we_allocated_buffer{nullptr};      // We allocated the buffer; 
   uint32_t  _count_pixels;       // How big is the display in total pixels...
   int16_t _changed_min_x, _changed_max_x, _changed_min_y, _changed_max_y;
   bool _updateChangedAreasOnly = false; // current default off,

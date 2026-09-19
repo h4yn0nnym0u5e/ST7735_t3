@@ -114,7 +114,9 @@ ST7735_t3::ST7735_t3(uint8_t cs, uint8_t rs, uint8_t rst, void (*CSfn)(bool nega
 	font      = NULL;
 	gfxFont   = NULL;
 	setClipRect();
+	updateDisplayClip();
 	setOrigin();
+	_clearChangedArea();
 	setMaxTransaction(1000); // longest allowed transaction (may not be honoured!)
 	enableYieldInMidTransaction(false); // default to original behaviour
 }
@@ -1616,7 +1618,7 @@ void ST7735_t3::readRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t *p
 }
 
 // Now lets see if we can writemultiple pixels
-void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pcolors)
+void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pcolors, const int transparent)
 {
 	if (x == CENTER)
 		x = (_width - w) / 2;
@@ -1669,7 +1671,10 @@ void ST7735_t3::writeRect(int16_t x, int16_t y, int16_t w, int16_t h, const uint
       uint16_t *pfbPixel = pfbPixel_row;
       pcolors += x_clip_left;
       for (int i = 0; i < w; i++) {
-        if (*pfbPixel != *pcolors) {
+        if (*pfbPixel != *pcolors
+		 && (transparent < 0 
+		  || *pcolors != transparent)
+		) {
           // pixel changed
           *pfbPixel = *pcolors;
           if (y < y_changed_min) y_changed_min = y;
@@ -4597,7 +4602,8 @@ void ST7735_t3::process_dma_interrupt(void) {
 
       _pimxrt_spi->CR =
           LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; // actually clear both...
-      _pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
+   	  _shared_spi_status[_spi_num]._pending_rx_count = 0; // we just invalidated this!		  
+  	  _pimxrt_spi->SR = 0x3f00; // clear out all of the other status...
 
       maybeUpdateTCR(_tcr_dc_assert |
                      LPSPI_TCR_FRAMESZ(7)); // output Command with 8 bits
